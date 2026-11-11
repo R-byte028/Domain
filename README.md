@@ -143,3 +143,35 @@ The Home tab is separate from the Account portfolio screen and is designed as an
 - Ecosystem reading links point to official NEAR sources: the NEAR Blog, NEAR roadmap, and NEAR Intents.
 - The Home screen does not duplicate the user's portfolio balance or holdings; those remain on Account.
 - Navigation now separates Home, Markets, Trade, Account, and Spend. Spend remains a clearly marked future feature.
+
+
+## NEAR Intents backend proxy
+
+Domain now includes a Supabase Edge Function named `intents-api` deployed to the Domain Wallet Supabase project.
+
+- The browser calls the Supabase Function rather than calling the 1Click API directly for supported assets and quote requests.
+- The function validates request structure and numeric amount/slippage bounds, handles CORS for the production app and localhost, and forwards requests to the NEAR Intents 1Click API.
+- The function supports supported-token discovery, dry quote previews, committed quote/deposit-address creation, deposit transaction notification, and swap status lookup.
+- Supabase Edge Function JWT verification is enabled. The browser uses the project's public Supabase API keys only; these are not wallet secrets.
+- The optional NEAR Intents partner JWT is read only from the server-side `NEAR_INTENTS_API_KEY` secret and sent upstream as `X-API-Key`. It must never be prefixed with `VITE_` or placed in browser code.
+- Without a partner JWT, 1Click currently allows public quote requests but applies its unauthenticated fee schedule (additional 25 bps on non-`ANY_INPUT` quotes). Authenticated partner pricing is typically 20 bps and can be lower for eligible routes. Check the current official fee schedule before production.
+
+### Backend configuration
+
+Vercel project environment variables:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY` (legacy public anon JWT used for Edge Function gateway verification)
+- `VITE_SUPABASE_PUBLISHABLE_KEY`
+
+Supabase Edge Function secret (not a Vercel browser variable):
+- `NEAR_INTENTS_API_KEY` — optional partner JWT obtained from the NEAR Intents Partner Dashboard. Add it in Supabase Dashboard → Edge Functions → Secrets. Never commit it.
+
+### Current execution boundary
+
+The backend can prepare live quotes and quote-specific deposit instructions. A quote or deposit address alone does not execute a swap. End-to-end execution still requires a wallet signer and source-chain deposit transaction for the selected origin network, followed by status tracking and verification of the destination transaction. The current locally generated Domain wallet derives a NEAR Ed25519 key only; it cannot sign EVM, Solana, Bitcoin, or other external-chain transactions. We must add the relevant wallet connection/signing adapters or limit the first live execution demo to a source network the wallet can securely sign.
+
+Official references:
+- 1Click API authentication: https://docs.agentsonintents.com/integration/distribution-channels/1click-api/authentication
+- 1Click API request lifecycle: https://docs.agentsonintents.com/integration/distribution-channels/1click-api/quickstart/making-a-request
+- Intents SDK capability matrix: https://docs.agentsonintents.com/integration/devkit/intents-sdk
+- 1Click fees: https://docs.agentsonintents.com/resources/fees
