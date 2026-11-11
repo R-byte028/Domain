@@ -1,0 +1,12 @@
+{
+  "name": "Domain Wallet",
+  "short_name": "Domain",
+  "description": "A mobile-first wallet experience for the NEAR ecosystem.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#080a0c",
+  "theme_color": "#080a0c",
+  "icons": [
+    { "src": "./domainlogo.png", "sizes": "any", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
