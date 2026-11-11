@@ -6,11 +6,11 @@ import { wordlist } from "@scure/bip39/wordlists/english";
 const { generateSeedPhrase, parseSeedPhrase, normalizeSeedPhrase } = nearSeedPhrase;
 const STORAGE_KEY = "domain.wallet.encrypted.v1";
 const PBKDF2_ITERATIONS = 310000;
-const screens = ["welcome","choice","recovery","import","confirm","password","unlock","ready","dashboard"];
+const screens = ["welcome","choice","recovery","import","confirm","password","unlock","ready","dashboard","markets"];
 let pendingWallet = null;
 let activeWallet = null;
 let currentPhrase = "";
-let toastTimer;
+let toastTimer;\nlet dashboardLoadId = 0;\nlet supportedNearTokens = [];
 
 const $ = (id) => document.getElementById(id);
 const toastEl = $("toast");
@@ -135,7 +135,125 @@ async function checkOnChainAccount() {
     $("account-status").textContent = "Address derived locally. Network status could not be checked right now.";
   }
 }
-function resetForNewWallet() {
+ 
+function formatUsd(value) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
+}
+function formatTokenAmount(raw, decimals) {
+  const value = Number(raw) / (10 ** decimals);
+  if (!Number.isFinite(value)) return "—";
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: value >= 1000 ? 2 : 6 }).format(value);
+}
+async function fetchJson(url, options = {}) {
+  const response = await fetch(url, { ...options, headers: { Accept: "application/json", ...(options.headers || {}) } });
+  if (!response.ok) throw new Error("Request failed (" + response.status + ")");
+  return response.json();
+}
+async function fetchSupportedNearTokens() {
+  const tokens = await fetchJson("https://1click.chaindefuser.com/v0/tokens");
+  supportedNearTokens = tokens.filter((token) => token.blockchain === "near" && token.contractAddress);
+  return supportedNearTokens;
+}
+async function loadDiscovery() {
+  const targets = [$("discovery-list"), $("markets-list")].filter(Boolean);
+  targets.forEach((el) => el.innerHTML = '<div class="loading-card">Loading NEAR Intents supported assets…</div>');
+  try {
+    const tokens = await fetchSupportedNearTokens();
+    const unique = [];
+    const seen = new Set();
+    for (const token of tokens) {
+      if (seen.has(token.contractAddress)) continue;
+      seen.add(token.contractAddress);
+      unique.push(token);
+    }
+    const featured = unique.filter((token) => Number(token.price) > 0)
+      .sort((a, b) => Number(b.price) - Number(a.price)).slice(0, 5);
+    const html = featured.length ? featured.map((token) => {
+      const price = Number(token.price);
+      return '<article class="discovery-row"><span class="asset-avatar">' + escapeHtml(token.symbol.slice(0, 2)) + '</span><span class="asset-info"><b>' + escapeHtml(token.symbol) + '</b><small>' + escapeHtml(token.contractAddress) + '</small></span><span class="asset-value"><b>' + formatUsd(price) + '</b><small>Indicative price</small></span></article>';
+    }).join("") : '<div class="loading-card">No featured NEAR assets are available right now.</div>';
+    targets.forEach((el) => el.innerHTML = html);
+  } catch {
+    targets.forEach((el) => el.innerHTML = '<div class="loading-card">Could not load supported assets. Pull to refresh or try again.</div>');
+  }
+}
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+}
+async function loadDashboard() {
+  if (!activeWallet) return;
+  const requestId = ++dashboardLoadId;
+  $("balance-status").textContent = "UPDATING";
+  $("portfolio-total").innerHTML = "$— <small>USD</small>";
+  $("portfolio-native").textContent = "Reading balances from NEAR mainnet…";
+  $("holdings-list").innerHTML = '<div class="loading-card">Fetching your NEAR wallet balances…</div>';
+  try {
+    const [account, ftData, prices] = await Promise.all([
+      fetchJson("https://rpc.mainnet.near.org", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: "domain-balance", method: "query", params: { request_type: "view_account", finality: "final", account_id: activeWallet.accountId } })
+      }),
+      fetchJson("https://api.fastnear.com/v1/account/" + encodeURIComponent(activeWallet.accountId) + "/ft").catch(() => ({ tokens: [] })),
+      fetchJson("https://1click.chaindefuser.com/v0/tokens").catch(() => [])
+    ]);
+    if (requestId !== dashboardLoadId || !activeWallet) return;
+    if (account.error) throw new Error(account.error.message || "NEAR account query failed.");
+    const nativeRaw = account.result?.amount || "0";
+    const nativeAmount = Number(nativeRaw) / 1e24;
+    const nativeToken = prices.find((token) => token.blockchain === "near" && ["NEAR", "wNEAR"].includes(token.symbol) && Number(token.price) > 0);
+    const nativePrice = nativeToken ? Number(nativeToken.price) : null;
+    const holdings = [];
+    if (nativeAmount > 0) holdings.push({
+      symbol: "NEAR", name: "NEAR Protocol", amount: nativeAmount,
+      displayAmount: formatTokenAmount(nativeRaw, 24), price: nativePrice,
+      usd: nativePrice === null ? null : nativeAmount * nativePrice,
+      contract: "NEAR native"
+    });
+    const rows = Array.isArray(ftData.tokens) ? ftData.tokens : [];
+    const priceByContract = new Map(prices.filter((token) => token.blockchain === "near" && token.contractAddress)
+      .map((token) => [token.contractAddress, token]));
+    for (const row of rows) {
+      if (!row.balance || BigInt(row.balance) === 0n) continue;
+      const token = priceByContract.get(row.contract_id);
+      if (!token) {
+        holdings.push({ symbol: row.contract_id.split(".")[0].slice(0, 12), name: row.contract_id, displayAmount: "Balance held", price: null, usd: null, contract: row.contract_id });
+        continue;
+      }
+      const amount = Number(row.balance) / (10 ** token.decimals);
+      const price = Number(token.price);
+      holdings.push({
+        symbol: token.symbol, name: row.contract_id, displayAmount: formatTokenAmount(row.balance, token.decimals),
+        price: Number.isFinite(price) && price > 0 ? price : null,
+        usd: Number.isFinite(price) && price > 0 ? amount * price : null,
+        contract: row.contract_id
+      });
+    }
+    const total = holdings.reduce((sum, item) => sum + (item.usd || 0), 0);
+    const hasUnpriced = holdings.some((item) => item.usd === null);
+    $("portfolio-total").innerHTML = (holdings.length && !hasUnpriced ? formatUsd(total) : holdings.length ? "—" : "$0.00") + ' <small>USD</small>';
+    $("portfolio-native").textContent = (nativeAmount > 0 ? formatTokenAmount(nativeRaw, 24) + " NEAR" : "No NEAR available") +
+      (holdings.length && hasUnpriced ? " · Some token prices unavailable" : " · " + holdings.length + " asset" + (holdings.length === 1 ? "" : "s"));
+    $("balance-status").textContent = "LIVE DATA";
+    if (holdings.length) {
+      $("holdings-list").innerHTML = holdings.map((item) =>
+        '<article class="asset-row"><span class="asset-avatar">' + escapeHtml(item.symbol.slice(0, 2)) + '</span><span class="asset-info"><b>' + escapeHtml(item.symbol) + '</b><small>' + escapeHtml(item.name) + '</small></span><span class="asset-value"><b>' + escapeHtml(item.displayAmount) + '</b><small>' + (item.usd === null ? "Price unavailable" : formatUsd(item.usd)) + '</small></span></article>'
+      ).join("");
+      $("discovery-section").hidden = true;
+    } else {
+      $("holdings-list").innerHTML = '<div class="empty-wallet"><span class="empty-wallet-icon">◈</span><b>Your wallet is waiting for its first asset</b><small>Deposit or receive tokens to see your portfolio here.</small></div>';
+      $("discovery-section").hidden = false;
+      await loadDiscovery();
+    }
+  } catch (error) {
+    if (requestId !== dashboardLoadId) return;
+    $("balance-status").textContent = "UNAVAILABLE";
+    $("portfolio-native").textContent = "Could not fetch current NEAR balances. Please retry.";
+    $("holdings-list").innerHTML = '<div class="loading-card">Balance data is temporarily unavailable. Your wallet keys are safe. Try refreshing.</div>';
+    $("discovery-section").hidden = false;
+  }
+}
+\nfunction resetForNewWallet() {
   pendingWallet = null;
   activeWallet = null;
   clearSensitiveInputs();
@@ -252,7 +370,7 @@ $("copy-address").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(activeWallet.accountId); toast("NEAR address copied."); }
   catch { toast("Clipboard access unavailable. You can select the address to copy it."); }
 });
-$("receive-action").addEventListener("click", async () => {
+$("dashboard-copy-address").addEventListener("click", async () => {\n  if (!activeWallet) return;\n  try { await navigator.clipboard.writeText(activeWallet.accountId); toast("NEAR address copied."); } catch { toast("Clipboard access unavailable."); }\n});\n$("refresh-balances").addEventListener("click", () => void loadDashboard());\n$("refresh-markets").addEventListener("click", () => void loadDiscovery());\n$("receive-action").addEventListener("click", async () => {
   if (!activeWallet) return;
   try { await navigator.clipboard.writeText(activeWallet.accountId); toast("Your NEAR address was copied."); }
   catch { toast("Your NEAR address: " + activeWallet.accountId); }
