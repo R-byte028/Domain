@@ -90,3 +90,19 @@ Data caveats:
 ## Wallet onboarding browser compatibility
 
 The NEAR seed phrase dependency uses Node core modules internally. Vite is configured with `vite-plugin-node-polyfills` to provide browser-compatible crypto, Buffer, stream, and related modules. This is required for wallet creation and recovery phrase import to run in browser builds. The polyfills do not send recovery phrases or private keys to a server.
+
+
+## Swap and bridge (NEAR Intents 1Click)
+
+The Trade screen uses the live NEAR Intents 1Click API:
+
+- Loads the current supported asset list from `GET https://1click.chaindefuser.com/v0/tokens`.
+- Requests a non-committing quote preview with `POST /v0/quote` using `dry: true`.
+- Can request a committed quote with `dry: false` and display the quote-specific deposit address and expiry.
+- Uses the selected token's API-provided `assetId` and `decimals`; the app does not construct asset IDs.
+- Supports cross-chain routing by letting the user specify a destination address and a refund address on the source chain.
+- Displays a clear warning that the quote itself does not move funds and that deposits must use the exact source asset and network.
+
+**Current integration boundary:** Domain currently provides quote preview and deposit instructions. It does not yet sign or broadcast source-chain deposits from the wallet, and it does not yet poll swap status or show completed transaction history. Do not treat a deposit address as proof that a swap has completed. These are subsequent implementation steps. The partner JWT is not required to request quotes; unauthenticated quotes currently incur an additional 0.25% 1Click fee according to the official API documentation.
+
+Official documentation: https://docs.agentsonintents.com/integration/distribution-channels/1click-api/about-1click-api and https://docs.agentsonintents.com/integration/distribution-channels/1click-api/quickstart/making-a-request
