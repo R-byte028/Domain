@@ -160,3 +160,34 @@
 .balance-hidden{filter:blur(9px);user-select:none}
 .account-assets-section[hidden],.discovery-section[hidden]{display:none!important}
 @media(max-width:420px){.account-header{padding:0 17px;height:76px}.account-content{width:calc(100% - 34px)}.account-avatar{width:44px;height:44px}.account-select b{font-size:14px}.account-summary-card{min-height:96px;padding:15px}.account-summary-card b{font-size:20px}.account-token-row{min-height:86px;gap:11px}.account-token-avatar{width:45px;height:45px;flex-basis:45px}.account-token-info b,.account-token-value b{font-size:15px}.account-token-info small,.account-token-value small{font-size:11px}}
+
+
+/* Home discovery hub: deliberately distinct from the Account portfolio */
+.home-screen{min-height:100svh;background:#07060b;padding-bottom:116px}
+.home-header{height:76px;padding:0 22px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid rgba(255,255,255,.07)}
+.home-brand{display:grid;gap:4px;color:#fff;font:700 18px 'Space Grotesk',sans-serif;letter-spacing:.08em}.home-brand small{font:600 8px 'DM Sans',sans-serif;color:#a98bce;letter-spacing:.16em}
+.home-header button{min-height:42px;padding:0 14px;border:1px solid #ffffff1c;border-radius:22px;background:#19151f;color:#e9dfff}
+.home-content{width:min(760px,calc(100% - 36px));margin:0 auto;padding:19px 0 28px}
+.home-welcome{min-height:280px;padding:26px 22px;border:1px solid #a97aff35;border-radius:24px;background:radial-gradient(ellipse at 90% 0%,#54268c66,transparent 48%),linear-gradient(145deg,#1a1026,#100d17 60%,#0d0b12)}
+.home-welcome>span,.home-section>div>small,.home-intents-card>small{font-size:9px;font-weight:700;letter-spacing:.15em;color:#c5a2f3}
+.home-welcome h1{margin:21px 0 12px;font:700 clamp(36px,8vw,48px)/1.04 'Space Grotesk',sans-serif;letter-spacing:-.05em}
+.home-welcome h1 em{font-style:normal;background:linear-gradient(90deg,#dfcaff,#9b6aff);background-clip:text;-webkit-background-clip:text;color:transparent}
+.home-welcome p{max-width:430px;color:#b3a9bc;font-size:13px;line-height:1.65}
+.home-welcome>div{display:flex;gap:10px;flex-wrap:wrap;margin-top:21px}
+.home-welcome button{min-height:45px;padding:0 16px;border-radius:13px;font-size:12px;font-weight:700}
+.home-welcome button:first-child{border:0;background:linear-gradient(100deg,#8c4bea,#6531ba);color:#fff}
+.home-welcome button:last-child{border:1px solid #ffffff25;background:#ffffff08;color:#e6dff0}
+.home-quick-actions{display:grid;grid-template-columns:repeat(4,1fr);gap:9px;margin:15px 0 29px}
+.home-quick-actions button{min-height:76px;border:1px solid #ffffff12;border-radius:15px;background:#14121a;color:#eee5f8;font-size:12px;font-weight:600}
+.home-section{margin-top:28px}.home-section h2,.home-intents-card h2{margin:7px 0 4px;font:600 20px 'Space Grotesk',sans-serif}.home-section p,.home-intents-card p{margin:0;color:#92889c;font-size:10px;line-height:1.6}
+.home-section>button{margin:13px 0;border:0;background:none;color:#c6a7f4;font-size:11px}
+#home-featured-assets{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:14px}
+.home-asset-card{min-width:0;min-height:72px;padding:11px;border:1px solid #ffffff12;border-radius:15px;background:#15131b;color:#fff;display:grid;grid-template-columns:35px 1fr auto;grid-template-rows:auto auto;gap:4px 9px;text-align:left}
+.home-asset-avatar{grid-row:1/3;width:35px;height:35px;border-radius:50%;display:grid;place-items:center;background:#2a1b3d;color:#d8c0ff;font-weight:700;font-size:11px}
+.home-asset-info,.home-asset-price{display:grid;gap:3px;min-width:0}.home-asset-info b{font-size:12px}.home-asset-info small,.home-asset-price small{font-size:8px;color:#94899c}.home-asset-price{grid-column:2/4;grid-row:2}.home-asset-price b{font-size:11px}.home-asset-arrow{color:#aa8ad0}
+.home-data-note,.home-disclaimer{margin:10px 2px;color:#817888;font-size:9px;line-height:1.6}
+.home-intents-card{margin-top:25px;padding:19px;border:1px solid #a677ff30;border-radius:18px;background:linear-gradient(120deg,#1c1229,#121018)}
+.home-intents-card button{margin-top:13px;padding:0;border:0;background:none;color:#c9a7ff;font-size:11px;font-weight:700}
+.home-section>a{display:block;margin:10px 0;padding:14px;border:1px solid #ffffff12;border-radius:13px;background:#15121c;color:#d9c7ef;text-decoration:none;font-size:12px}
+.home-disclaimer{margin-top:25px;padding-top:15px;border-top:1px solid #ffffff12}
+@media(max-width:420px){.home-header{padding:0 15px}.home-content{width:calc(100% - 26px)}.home-welcome{padding:23px 18px}.home-welcome h1{font-size:37px}.home-quick-actions{gap:7px}.home-quick-actions button{font-size:10px}.home-section h2{font-size:18px}}
