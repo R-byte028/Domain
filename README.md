@@ -132,3 +132,14 @@ The Account tab has a dedicated mobile-first portfolio layout:
 - Lists held assets with indicative unit price, held quantity, and estimated USD value where a supported price is available.
 - Empty wallets show a clear receive prompt and an asset discovery list instead of fabricated holdings.
 - History is labelled as unavailable until transaction indexing is integrated; no fake transaction activity or 24-hour portfolio performance is shown.
+
+
+## Home / discovery hub
+
+The Home tab is separate from the Account portfolio screen and is designed as an ecosystem discovery feed:
+- Welcome panel explains Domain's cross-chain wallet purpose and links directly to Trade and Markets.
+- Quick actions provide shortcuts to Swap, Markets, Account, and Receive guidance.
+- Featured assets are loaded from the public NEAR Intents 1Click supported-token endpoint. They are labelled as assets to explore and show indicative prices, not fabricated performance metrics or recommendations.
+- Ecosystem reading links point to official NEAR sources: the NEAR Blog, NEAR roadmap, and NEAR Intents.
+- The Home screen does not duplicate the user's portfolio balance or holdings; those remain on Account.
+- Navigation now separates Home, Markets, Trade, Account, and Spend. Spend remains a clearly marked future feature.
