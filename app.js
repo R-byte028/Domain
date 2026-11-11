@@ -6,7 +6,7 @@ import { wordlist } from "@scure/bip39/wordlists/english";
 const { generateSeedPhrase, parseSeedPhrase, normalizeSeedPhrase } = nearSeedPhrase;
 const STORAGE_KEY = "domain.wallet.encrypted.v1";
 const PBKDF2_ITERATIONS = 310000;
-const screens = ["welcome","choice","recovery","import","confirm","password","unlock","ready","dashboard","market","trade"];
+const screens = ["welcome","choice","recovery","import","confirm","password","unlock","ready","home","dashboard","market","trade"];
 let pendingWallet = null;
 let activeWallet = null;
 let currentPhrase = "";
@@ -183,6 +183,39 @@ async function loadDiscovery() {
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 }
+let homeFeedRequest = 0;
+async function loadHomeFeed() {
+  const requestId = ++homeFeedRequest;
+  const target = $("home-featured-assets");
+  if (!target) return;
+  target.innerHTML = '<div class="loading-card">Refreshing supported assets…</div>';
+  try {
+    const tokens = await fetchJson("https://1click.chaindefuser.com/v0/tokens");
+    if (requestId !== homeFeedRequest) return;
+    const seen = new Set();
+    const valid = tokens.filter(token => {
+      if (!token.assetId || seen.has(token.assetId) || !(Number(token.price) > 0)) return false;
+      seen.add(token.assetId); return true;
+    });
+    const featured = valid.filter(token => token.blockchain === "near").slice(0,2).concat(valid.filter(token => token.blockchain !== "near").slice(0,2));
+    if (!featured.length) {
+      target.innerHTML = '<div class="market-empty"><span>◇</span><b>No featured assets right now</b><small>Open Markets to browse the supported-token list.</small></div>';
+      return;
+    }
+    target.innerHTML = featured.map((token,index) => '<button class="home-asset-card" data-home-asset="'+escapeHtml(token.symbol || "")+'"><span class="home-asset-avatar">'+escapeHtml(String(token.symbol || "??").slice(0,2))+'</span><span class="home-asset-info"><b>'+escapeHtml(token.symbol || "Unknown")+'</b><small>'+escapeHtml(String(token.blockchain || "network").toUpperCase())+'</small></span><span class="home-asset-price"><b>'+formatUsd(Number(token.price))+'</b><small>Indicative USD</small></span><span class="home-asset-arrow">↗</span></button>').join("");
+    target.querySelectorAll("[data-home-asset]").forEach(button => button.addEventListener("click", () => {
+      showScreen("market");
+      $("market-search").value = button.dataset.homeAsset;
+      marketFilter = "all";
+      document.querySelectorAll("[data-market-filter]").forEach(item => item.classList.toggle("active",item.dataset.marketFilter === "all"));
+      void loadMarketAssets().then(() => renderMarketList());
+    }));
+  } catch (error) {
+    if (requestId !== homeFeedRequest) return;
+    target.innerHTML = '<div class="market-empty"><span>!</span><b>Discovery is temporarily unavailable</b><small>Check your connection or browse Markets again.</small><button class="inline-action" id="home-retry">Try again</button></div>';
+    $("home-retry")?.addEventListener("click", () => void loadHomeFeed());
+  }
+}
 async function loadDashboard() {
   if (!activeWallet) return;
   const requestId = ++dashboardLoadId;
@@ -270,7 +303,10 @@ function resetForNewWallet() {
 $("welcome-action").addEventListener("click", () => showScreen(walletExists() ? "unlock" : "choice"));
 document.addEventListener("click", (event) => {
   const go = event.target.closest("[data-go]");
-  if (go) { event.preventDefault(); showScreen(go.dataset.go); if (go.dataset.go === "market") { void loadMarketAssets(); if (activeWallet) { $("market-wallet-name").textContent = activeWallet.name || "Domain Wallet"; $("market-account-label").textContent = activeWallet.accountId.slice(0, 12) + "…"; } }
+  if (go) { event.preventDefault(); showScreen(go.dataset.go);
+    if (go.dataset.go === "home") void loadHomeFeed();
+    if (go.dataset.go === "dashboard") { if (activeWallet) { void loadDashboard(); $("account-wallet-name").textContent = activeWallet.name || "Domain Wallet"; $("account-wallet-network").textContent = "NEAR MAINNET"; } }
+    if (go.dataset.go === "market") { void loadMarketAssets(); if (activeWallet) { $("market-wallet-name").textContent = activeWallet.name || "Domain Wallet"; $("market-account-label").textContent = activeWallet.accountId.slice(0, 12) + "…"; } }
     if (go.dataset.go === "trade") { void loadTradeAssets(); if (activeWallet) { $("trade-account-label").textContent = activeWallet.accountId.slice(0, 12) + "…"; $("trade-refund").value ||= activeWallet.accountId; } } return; }
   const note = event.target.closest("[data-toast]");
   if (note) toast(note.dataset.toast);
@@ -364,7 +400,8 @@ $("unlock-wallet").addEventListener("click", async () => {
     activeWallet = await unlockWithPassword($("unlock-password").value);
     $("unlock-password").value = "";
     renderWallet();
-    showScreen("dashboard");
+    showScreen("home");
+    void loadHomeFeed();
   } catch {
     $("unlock-error").textContent = "Unable to unlock. Check your password, or restore with your recovery phrase.";
   }
