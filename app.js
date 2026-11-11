@@ -10,7 +10,9 @@ const screens = ["welcome","choice","recovery","import","confirm","password","un
 let pendingWallet = null;
 let activeWallet = null;
 let currentPhrase = "";
-let toastTimer;\nlet dashboardLoadId = 0;\nlet supportedNearTokens = [];
+let toastTimer;
+let dashboardLoadId = 0;
+let supportedNearTokens = [];
 
 const $ = (id) => document.getElementById(id);
 const toastEl = $("toast");
@@ -253,7 +255,8 @@ async function loadDashboard() {
     $("discovery-section").hidden = false;
   }
 }
-\nfunction resetForNewWallet() {
+
+function resetForNewWallet() {
   pendingWallet = null;
   activeWallet = null;
   clearSensitiveInputs();
@@ -370,7 +373,13 @@ $("copy-address").addEventListener("click", async () => {
   try { await navigator.clipboard.writeText(activeWallet.accountId); toast("NEAR address copied."); }
   catch { toast("Clipboard access unavailable. You can select the address to copy it."); }
 });
-$("dashboard-copy-address").addEventListener("click", async () => {\n  if (!activeWallet) return;\n  try { await navigator.clipboard.writeText(activeWallet.accountId); toast("NEAR address copied."); } catch { toast("Clipboard access unavailable."); }\n});\n$("refresh-balances").addEventListener("click", () => void loadDashboard());\n$("refresh-markets").addEventListener("click", () => void loadDiscovery());\n$("receive-action").addEventListener("click", async () => {
+$("dashboard-copy-address").addEventListener("click", async () => {
+  if (!activeWallet) return;
+  try { await navigator.clipboard.writeText(activeWallet.accountId); toast("NEAR address copied."); } catch { toast("Clipboard access unavailable."); }
+});
+$("refresh-balances").addEventListener("click", () => void loadDashboard());
+$("refresh-markets").addEventListener("click", () => void loadDiscovery());
+$("receive-action").addEventListener("click", async () => {
   if (!activeWallet) return;
   try { await navigator.clipboard.writeText(activeWallet.accountId); toast("Your NEAR address was copied."); }
   catch { toast("Your NEAR address: " + activeWallet.accountId); }
