@@ -118,7 +118,7 @@ function renderWallet() {
   if (!activeWallet) return;
   $("ready-name").textContent = activeWallet.name;
   $("ready-address").textContent = activeWallet.accountId;
-  $("dashboard-account").textContent = activeWallet.accountId;
+  $("dashboard-account").textContent = activeWallet.accountId;\n  $("account-wallet-name").textContent = activeWallet.name || "Domain Wallet";
 }
 async function checkOnChainAccount() {
   if (!activeWallet) return;
@@ -236,15 +236,18 @@ async function loadDashboard() {
     $("portfolio-total").innerHTML = (holdings.length && !hasUnpriced ? formatUsd(total) : holdings.length ? "—" : "$0.00") + ' <small>USD</small>';
     $("portfolio-native").textContent = (nativeAmount > 0 ? formatTokenAmount(nativeRaw, 24) + " NEAR" : "No NEAR available") +
       (holdings.length && hasUnpriced ? " · Some token prices unavailable" : " · " + holdings.length + " asset" + (holdings.length === 1 ? "" : "s"));
+    $("tokens-total-value").textContent = holdings.length && !hasUnpriced ? formatUsd(total) : holdings.length ? "Value unavailable" : "$0.00";
+    $("token-count").textContent = "(" + holdings.length + ")";
     $("balance-status").textContent = "LIVE DATA";
     if (holdings.length) {
       $("holdings-list").innerHTML = holdings.map((item) =>
-        '<article class="asset-row"><span class="asset-avatar">' + escapeHtml(item.symbol.slice(0, 2)) + '</span><span class="asset-info"><b>' + escapeHtml(item.symbol) + '</b><small>' + escapeHtml(item.name) + '</small></span><span class="asset-value"><b>' + escapeHtml(item.displayAmount) + '</b><small>' + (item.usd === null ? "Price unavailable" : formatUsd(item.usd)) + '</small></span></article>'
+        '<article class="account-token-row"><span class="account-token-avatar">' + escapeHtml(item.symbol.slice(0, 2)) + '</span><span class="account-token-info"><b>' + escapeHtml(item.symbol) + '</b><small>' + (item.price === null ? "Price unavailable" : formatUsd(item.price)) + (item.price === null ? "" : " per token") + '</small></span><span class="account-token-value"><b>' + (item.usd === null ? "—" : formatUsd(item.usd)) + '</b><small>' + escapeHtml(item.displayAmount) + '</small></span></article>'
       ).join("");
       $("discovery-section").hidden = true;
     } else {
-      $("holdings-list").innerHTML = '<div class="empty-wallet"><span class="empty-wallet-icon">◈</span><b>Your wallet is waiting for its first asset</b><small>Deposit or receive tokens to see your portfolio here.</small></div>';
+      $("holdings-list").innerHTML = '<div class="account-empty-wallet"><span>◈</span><b>Your wallet is empty for now</b><small>Receive or deposit tokens and your holdings will appear here automatically.</small><button class="account-empty-action" id="account-empty-receive">Receive assets ↗</button></div>';
       $("discovery-section").hidden = false;
+      $("account-empty-receive")?.addEventListener("click", () => $("receive-action")?.click());
       await loadDiscovery();
     }
   } catch (error) {
@@ -390,6 +393,22 @@ $("lock-wallet").addEventListener("click", () => {
   $("unlock-password").value = "";
   showScreen("unlock");
 });
+let accountBalanceHidden = false;
+$("toggle-balance").addEventListener("click", () => {
+  accountBalanceHidden = !accountBalanceHidden;
+  $("portfolio-total").classList.toggle("balance-hidden", accountBalanceHidden);
+  $("tokens-total-value").classList.toggle("balance-hidden", accountBalanceHidden);
+  $("toggle-balance").textContent = accountBalanceHidden ? "◌" : "◉";
+  $("toggle-balance").setAttribute("aria-label", accountBalanceHidden ? "Show balance" : "Hide balance");
+});
+$("account-history").addEventListener("click", () => toast("Transaction history will appear here when activity indexing is connected."));
+document.querySelectorAll("[data-account-tab]").forEach(button => button.addEventListener("click", () => {
+  document.querySelectorAll("[data-account-tab]").forEach(item => item.classList.toggle("active", item === button));
+  const defi = button.dataset.accountTab === "defi";
+  $("holdings-section").hidden = defi;
+  $("discovery-section").hidden = defi || $("holdings-list").querySelector(".account-empty-wallet") === null;
+  $("account-defi-panel").hidden = !defi;
+}));
 if (!window.crypto?.subtle) {
   $("welcome-action").disabled = true;
   toast("This browser does not support secure wallet encryption. Please use an up-to-date browser over HTTPS.");
