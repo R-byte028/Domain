@@ -106,3 +106,17 @@ The Trade screen uses the live NEAR Intents 1Click API:
 **Current integration boundary:** Domain currently provides quote preview and deposit instructions. It does not yet sign or broadcast source-chain deposits from the wallet, and it does not yet poll swap status or show completed transaction history. Do not treat a deposit address as proof that a swap has completed. These are subsequent implementation steps. The partner JWT is not required to request quotes; unauthenticated quotes currently incur an additional 0.25% 1Click fee according to the official API documentation.
 
 Official documentation: https://docs.agentsonintents.com/integration/distribution-channels/1click-api/about-1click-api and https://docs.agentsonintents.com/integration/distribution-channels/1click-api/quickstart/making-a-request
+
+
+## Markets screen
+
+The dedicated Markets tab in the floating navigation displays the live supported-asset catalogue from the NEAR Intents 1Click API (`GET /v0/tokens`).
+
+- Shows token symbol, chain/network, contract address when available, and indicative USD price.
+- Search works across token symbol, network, contract address, and asset ID.
+- Filters separate NEAR ecosystem assets from cross-chain assets.
+- Price sorting and locally stored favorite-token markers are supported.
+- Stocks and commodities are shown as future categories and are not represented as live tradable products.
+- The API does not provide 24-hour percentage change, market capitalization, or volume in its supported-token response. Domain therefore does not fabricate those metrics. A separate market-data provider integration would be required to show them.
+
+Official API reference: https://docs.agentsonintents.com/api-reference/oneclick/get-supported-tokens
