@@ -1,63 +1,69 @@
 # Domain Wallet
 
-A mobile-first wallet frontend for the NEAR ecosystem, with a product direction centred on native NEAR accounts and NEAR Intents.
+A mobile-first, non-custodial wallet frontend for the NEAR ecosystem. This project derives NEAR implicit addresses locally and encrypts wallet key material on the user's device.
 
-> **Status: frontend prototype.** This repository currently contains a responsive visual design and clickable onboarding/dashboard flow. Secure NEAR key generation, account creation, wallet import, authentication, live balances, transfers, and NEAR Intents execution are not connected. Recovery and import screens are preview-only. Never enter a real recovery phrase in this prototype.
+## Current implementation
 
-## Product experience
+- Black and violet responsive wallet interface.
+- Local NEAR recovery phrase generation using the NEAR-maintained `near-seed-phrase` package.
+- Recovery phrase reveal/hide and copy controls.
+- 12- or 24-word recovery phrase import with BIP-39 validation.
+- NEAR implicit account ID derived from the Ed25519 public key.
+- Device-local wallet encryption using Web Crypto AES-256-GCM with a PBKDF2-SHA-256 key derivation.
+- Password unlock and lock flow.
+- Read-only NEAR mainnet account existence check.
+- Wallet dashboard, receive-address copy, and onboarding.
 
-- Minimal black-and-violet welcome screen.
-- Create-wallet and import-wallet entry points.
-- Recovery phrase safety education and a preview-only acknowledgement.
-- Wallet naming and setup-complete screen.
-- Wallet dashboard with portfolio overview, Send, Receive, Deposit and Swap entry points, assets, activity, and fixed bottom navigation.
-- Responsive layouts for mobile and desktop.
+## Important NEAR account distinction
 
-## Visual direction
+Generating a key pair and deriving a 64-character implicit account ID happens locally. It does not itself submit a transaction or fund/create an active on-chain account. NEAR implicit accounts become active on-chain when they receive their first transfer. The first implementation therefore clearly distinguishes a locally generated address from an account confirmed to exist on-chain.
 
-The interface uses a deliberately restrained palette: near-black backgrounds, deep violet surfaces, purple accents, and white typography. The welcome screen does not use the supplied logo image; the supplied domain.png artwork is used as the central visual.
+## Security model and limitations
+
+- The recovery phrase and key pair are generated/derived in the browser.
+- The recovery phrase is not stored in localStorage, sent to Supabase, or sent to a Domain server.
+- The private key is encrypted in browser localStorage using AES-256-GCM. A password-derived key uses PBKDF2-SHA-256 with a unique random salt and 310,000 iterations.
+- The encryption password is not stored.
+- Locking the wallet clears the in-memory active key object. Reloading the app requires the password again.
+- Browser localStorage is accessible to same-origin JavaScript. Encryption reduces exposure of stored key material but does not protect against malicious extensions, compromised devices, XSS, or a compromised application origin. A production security review, CSP hardening, independent audit, and secure key storage review are still required.
+- Losing both the password and recovery phrase means the wallet cannot be recovered.
+- Do not paste a recovery phrase into support chats, issue trackers, analytics, logs, or third-party sites.
+- No seed phrase or private key should ever be sent to Supabase or a server.
+
+## Not yet implemented
+
+- On-chain funding / named-account creation.
+- Sending NEAR or NEP-141 tokens.
+- Live token balances and transaction history.
+- NEAR Intents quotes, deposits, signed intents, swaps, withdrawals, and status tracking.
+- Social login, notifications, hardware-wallet support, multi-account support, and audited backup verification.
 
 ## Run locally
 
-No build step is required.
+1. Install Node.js 20 or newer.
+2. Clone this repository and enter the folder.
+3. Run `npm install`.
+4. Run `npm run dev -- --host 0.0.0.0`.
+5. Open the local URL printed by Vite. Use HTTPS (or localhost) for Web Crypto APIs.
 
-1. Clone the repository: git clone https://github.com/R-byte028/Domain.git
-2. Enter the project folder.
-3. Start a local static server: python -m http.server 8000
-4. Open http://localhost:8000.
-
-For Vercel, import this GitHub repository as a static site. Use the repository root; no build command is required.
+Build for production with `npm run build`. Vercel should use the Vite framework preset, `npm run build`, and `dist` as the output directory.
 
 ## Judge walkthrough
 
-1. Open the deployed site. The first screen should show the Domain Wallet title, purple portal artwork, “Expand your portfolio”, and a prominent Get Started button on a black background.
-2. Select Get Started. Choose Create a new wallet or Import an existing wallet.
-3. On the create flow, inspect the preview-only recovery phrase notice, reveal/hide the placeholder words, acknowledge the notice, and continue.
-4. Enter a wallet display name and continue to the setup preview.
-5. Select Explore dashboard. Inspect the sample portfolio card, quick actions, asset list, activity panel, and fixed bottom navigation.
-6. Return to the start and open Import an existing wallet. The prototype counts entered words and explains that secure import is not connected.
+1. Open the app. Choose **Get Started** then **Create a new wallet**.
+2. View the generated 12-word recovery phrase, toggle visibility, and copy it if desired. Acknowledge that it has been safely written down.
+3. Choose a wallet display name and create a device password of at least eight characters.
+4. The app encrypts the private key locally, derives the 64-character NEAR implicit address, and checks whether that address already exists on NEAR mainnet.
+5. Open the dashboard. The Receive action copies the derived NEAR address.
+6. Lock the wallet and unlock it with the device password.
+7. To test recovery, use **Import an existing wallet** with a valid 12- or 24-word NEAR seed phrase. The app derives the same key and address for the matching phrase and encrypts it on this device.
 
-Expected result: all screens navigate and adapt to phone and desktop sizes. Wallet actions that require a connected account display a clear coming-soon message rather than pretending to execute a transaction.
+## Technologies
 
-## Security notes
-
-- This prototype does not generate, store, transmit, or import private keys or recovery phrases.
-- Never paste a real seed phrase into the preview import screen.
-- Do not store recovery phrases, private keys, or signing secrets in Supabase, GitHub, logs, analytics, or server requests.
-- Production wallet creation/import must use reviewed NEAR-compatible tooling and secure key handling, with recovery backup and verification.
-- Dashboard balances and asset rows are sample placeholders; no live wallet data is fetched.
-- Social login and notifications are not connected.
-
-## Planned integration sequence
-
-1. Implement and test NEAR-compatible key generation and wallet restoration using maintained tooling.
-2. Add a secure account creation/connection path and explicit signing confirmation.
-3. Integrate NEAR Intents for supported quote, swap, and execution flows, following current protocol documentation.
-4. Add live balances, token metadata, transaction history, and network/error states.
-5. Complete security review and expand tests and judge walkthrough evidence.
-
-## Technology
-
-- HTML, CSS, and vanilla JavaScript.
-- Progressive Web App manifest and service worker.
-- NEAR Protocol / NEAR Intents integration planned; not yet implemented in this frontend-only stage.
+- Vite, HTML, CSS, and JavaScript.
+- `near-seed-phrase` for NEAR BIP-39 seed phrase/key derivation.
+- `@scure/bip39` for mnemonic checksum validation.
+- `bs58` for NEAR Ed25519 public key decoding.
+- Web Crypto API (PBKDF2 and AES-GCM) for device-local encryption.
+- NEAR mainnet JSON-RPC for a read-only account existence check.
+- NEAR Intents integration is planned as the next stage; no swap or intent is submitted by this release.
