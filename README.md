@@ -85,3 +85,8 @@ Data caveats:
 - NEAR Intents supported-token discovery is not a claim that every listed token is already held by the user.
 - Dashboard balance reads are read-only. No transaction signing, deposits, swaps, or transfers are triggered by this dashboard.
 - FastNear's public indexed endpoint is used without an API key for the initial prototype. If usage limits or production reliability require an authenticated key, request one and store it server-side; never expose a provider secret in browser code.
+
+
+## Wallet onboarding browser compatibility
+
+The NEAR seed phrase dependency uses Node core modules internally. Vite is configured with `vite-plugin-node-polyfills` to provide browser-compatible crypto, Buffer, stream, and related modules. This is required for wallet creation and recovery phrase import to run in browser builds. The polyfills do not send recovery phrases or private keys to a server.
