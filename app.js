@@ -396,6 +396,8 @@ if (!window.crypto?.subtle) {
   setWelcomeAction();
   if (walletExists()) showScreen("unlock");
 }
-if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("./sw.js").catch(() => {}));
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.getRegistrations()
+    .then((registrations) => registrations.forEach((registration) => registration.unregister()))
+    .catch(() => {}));
 }
