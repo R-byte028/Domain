@@ -147,13 +147,25 @@ function formatTokenAmount(raw, decimals) {
   if (!Number.isFinite(value)) return "—";
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: value >= 1000 ? 2 : 6 }).format(value);
 }
+const SUPABASE_FUNCTIONS_URL = (import.meta.env.VITE_SUPABASE_URL || "") + "/functions/v1/intents-api";
+async function fetchIntents(path, options = {}) {
+  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const publishable = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  if (!SUPABASE_FUNCTIONS_URL.startsWith("https://") || !anon || !publishable) throw new Error("The secure NEAR Intents backend is not configured. Refresh after deployment.");
+  const response = await fetch(SUPABASE_FUNCTIONS_URL + "/" + path, { ...options, headers: { Accept: "application/json", "Content-Type": "application/json", apikey: publishable, Authorization: "Bearer " + anon, ...(options.headers || {}) } });
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "NEAR Intents backend request failed (" + response.status + ").");
+  return result;
+}
+async function fetchIntentsTokens() { return fetchIntents("tokens"); }
+
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, { ...options, headers: { Accept: "application/json", ...(options.headers || {}) } });
   if (!response.ok) throw new Error("Request failed (" + response.status + ")");
   return response.json();
 }
 async function fetchSupportedNearTokens() {
-  const tokens = await fetchJson("https://1click.chaindefuser.com/v0/tokens");
+  const tokens = await fetchIntentsTokens();
   supportedNearTokens = tokens.filter((token) => token.blockchain === "near" && token.contractAddress);
   return supportedNearTokens;
 }
@@ -190,7 +202,7 @@ async function loadHomeFeed() {
   if (!target) return;
   target.innerHTML = '<div class="loading-card">Refreshing supported assets…</div>';
   try {
-    const tokens = await fetchJson("https://1click.chaindefuser.com/v0/tokens");
+    const tokens = await fetchIntentsTokens();
     if (requestId !== homeFeedRequest) return;
     const seen = new Set();
     const valid = tokens.filter(token => {
@@ -231,7 +243,7 @@ async function loadDashboard() {
         body: JSON.stringify({ jsonrpc: "2.0", id: "domain-balance", method: "query", params: { request_type: "view_account", finality: "final", account_id: activeWallet.accountId } })
       }),
       fetchJson("https://api.fastnear.com/v1/account/" + encodeURIComponent(activeWallet.accountId) + "/ft").catch(() => ({ tokens: [] })),
-      fetchJson("https://1click.chaindefuser.com/v0/tokens").catch(() => [])
+      fetchIntentsTokens().catch(() => [])
     ]);
     if (requestId !== dashboardLoadId || !activeWallet) return;
     if (account.error) throw new Error(account.error.message || "NEAR account query failed.");
@@ -497,7 +509,7 @@ async function loadTradeAssets() {
   const list = $("markets-list");
   if (list) list.innerHTML = '<div class="loading-card">Loading supported assets from NEAR Intents…</div>';
   try {
-    const tokens = await fetchJson(ONE_CLICK + "/v0/tokens");
+    const tokens = await fetchIntentsTokens();
     tradeAssets = tokens.filter(token => token.assetId && Number.isInteger(Number(token.decimals)) && Number(token.decimals) >= 0);
     if (!tradeAssets.length) throw new Error("No supported assets were returned.");
     populateTradeSelectors();
@@ -560,7 +572,7 @@ $("get-trade-quote").addEventListener("click", async () => {
   try {
     const body = tradeQuoteRequest(true);
     button.disabled = true; button.textContent = "Getting live quote…";
-    const response = await fetchJson(ONE_CLICK + "/v0/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    const response = await fetchIntents("quote", { method: "POST", body: JSON.stringify({ action: "quote", payload: body }) });
     renderTradeQuote(response);
     committedTradeQuote = body;
     const action = document.createElement("button");
@@ -573,7 +585,7 @@ $("get-trade-quote").addEventListener("click", async () => {
       action.disabled = true; action.textContent = "Preparing deposit…";
       try {
         const wetBody = { ...committedTradeQuote, dry: false };
-        const committed = await fetchJson(ONE_CLICK + "/v0/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wetBody) });
+        const committed = await fetchIntents("quote", { method: "POST", body: JSON.stringify({ action: "quote", payload: wetBody }) });
         const q = committed.quote || committed;
         if (!q.depositAddress) throw new Error("The provider did not return a deposit address.");
         const panel = $("trade-deposit-instructions");
@@ -629,7 +641,7 @@ async function loadMarketAssets() {
   $("market-list").innerHTML = '<div class="loading-card">Loading supported tokens from NEAR Intents…</div>';
   $("market-updated").textContent = "Refreshing prices";
   try {
-    const tokens = await fetchJson(ONE_CLICK + "/v0/tokens");
+    const tokens = await fetchIntentsTokens();
     const seen = new Set();
     marketAssets = tokens.filter(token => {
       if (!token.assetId || seen.has(token.assetId)) return false;
