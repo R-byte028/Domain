@@ -118,7 +118,8 @@ function renderWallet() {
   if (!activeWallet) return;
   $("ready-name").textContent = activeWallet.name;
   $("ready-address").textContent = activeWallet.accountId;
-  $("dashboard-account").textContent = activeWallet.accountId;\n  $("account-wallet-name").textContent = activeWallet.name || "Domain Wallet";
+  $("dashboard-account").textContent = activeWallet.accountId;
+  $("account-wallet-name").textContent = activeWallet.name || "Domain Wallet";
 }
 async function checkOnChainAccount() {
   if (!activeWallet) return;
