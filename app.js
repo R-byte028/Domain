@@ -6,7 +6,7 @@ import { wordlist } from "@scure/bip39/wordlists/english";
 const { generateSeedPhrase, parseSeedPhrase, normalizeSeedPhrase } = nearSeedPhrase;
 const STORAGE_KEY = "domain.wallet.encrypted.v1";
 const PBKDF2_ITERATIONS = 310000;
-const screens = ["welcome","choice","recovery","import","confirm","password","unlock","ready","dashboard","markets"];
+const screens = ["welcome","choice","recovery","import","confirm","password","unlock","ready","dashboard","market","trade"];
 let pendingWallet = null;
 let activeWallet = null;
 let currentPhrase = "";
@@ -266,7 +266,8 @@ function resetForNewWallet() {
 $("welcome-action").addEventListener("click", () => showScreen(walletExists() ? "unlock" : "choice"));
 document.addEventListener("click", (event) => {
   const go = event.target.closest("[data-go]");
-  if (go) { event.preventDefault(); showScreen(go.dataset.go); if (go.dataset.go === "markets") { void loadTradeAssets(); if (activeWallet) { $("trade-account-label").textContent = activeWallet.accountId.slice(0, 12) + "…"; $("trade-refund").value ||= activeWallet.accountId; } } return; }
+  if (go) { event.preventDefault(); showScreen(go.dataset.go); if (go.dataset.go === "market") { void loadMarketAssets(); if (activeWallet) { $("market-wallet-name").textContent = activeWallet.name || "Domain Wallet"; $("market-account-label").textContent = activeWallet.accountId.slice(0, 12) + "…"; } }
+    if (go.dataset.go === "trade") { void loadTradeAssets(); if (activeWallet) { $("trade-account-label").textContent = activeWallet.accountId.slice(0, 12) + "…"; $("trade-refund").value ||= activeWallet.accountId; } } return; }
   const note = event.target.closest("[data-toast]");
   if (note) toast(note.dataset.toast);
 });
@@ -529,4 +530,77 @@ $("get-trade-quote").addEventListener("click", async () => {
     $("trade-error").textContent = error.message || "Could not get a quote. Check the amount and addresses.";
     $("trade-quote-panel").innerHTML = '<span>QUOTE UNAVAILABLE</span><b>Could not find a route</b><small>' + escapeHtml(error.message || "Try a different amount or asset pair.") + '</small>';
   } finally { button.disabled = false; button.textContent = tradeMode === "bridge" ? "Get bridge quote →" : "Get quote →"; }
+});
+
+
+// Markets page — live asset catalogue from NEAR Intents 1Click
+let marketAssets = [];
+let marketFilter = "all";
+let marketSortDescending = true;
+let marketFavorites = new Set(JSON.parse(localStorage.getItem("domain.market.favorites") || "[]"));
+function marketPrice(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return new Intl.NumberFormat("en-US", { style:"currency", currency:"USD", minimumFractionDigits: n < 1 ? 4 : 2, maximumFractionDigits: n < 1 ? 6 : 2 }).format(n);
+}
+function marketTokenInitial(symbol) { return String(symbol || "?").slice(0,2).toUpperCase(); }
+function renderMarketList() {
+  const query = $("market-search").value.trim().toLowerCase();
+  let rows = marketAssets.filter(token => {
+    const matchesFilter = marketFilter === "all" || (marketFilter === "near" ? token.blockchain === "near" : token.blockchain !== "near");
+    const haystack = [token.symbol,token.blockchain,token.contractAddress,token.assetId].join(" ").toLowerCase();
+    return matchesFilter && haystack.includes(query);
+  });
+  rows.sort((a,b) => {
+    const pa = Number(a.price) || 0, pb = Number(b.price) || 0;
+    return marketSortDescending ? pb-pa : pa-pb;
+  });
+  $("market-count").textContent = rows.length + " assets";
+  if (!rows.length) {
+    $("market-list").innerHTML = '<div class="market-empty"><span>⌕</span><b>No matching tokens</b><small>Try another symbol or network.</small></div>';
+    return;
+  }
+  $("market-list").innerHTML = rows.slice(0,180).map((token,index) => {
+    const key = token.assetId;
+    const favorite = marketFavorites.has(key);
+    const price = Number(token.price);
+    const chain = String(token.blockchain || "unknown").toUpperCase();
+    return '<article class="market-row"><button class="market-favorite '+(favorite?'is-favorite':'')+'" data-favorite="'+escapeHtml(key)+'" aria-label="'+(favorite?'Remove from':'Add to')+' favorites">'+(favorite?'★':'☆')+'</button><span class="market-token-avatar avatar-'+(index%6)+'">'+escapeHtml(marketTokenInitial(token.symbol))+'</span><span class="market-token-info"><b>'+escapeHtml(token.symbol || "Unknown")+'</b><small>'+escapeHtml(chain)+(token.contractAddress ? ' · '+escapeHtml(token.contractAddress) : '')+'</small></span><span class="market-price"><b>'+marketPrice(price)+'</b><small>'+(price>0?'USD price':'Price unavailable')+'</small></span><span class="market-token-network">'+escapeHtml(chain)+'</span></article>';
+  }).join("");
+}
+async function loadMarketAssets() {
+  $("market-list").innerHTML = '<div class="loading-card">Loading supported tokens from NEAR Intents…</div>';
+  $("market-updated").textContent = "Refreshing prices";
+  try {
+    const tokens = await fetchJson(ONE_CLICK + "/v0/tokens");
+    const seen = new Set();
+    marketAssets = tokens.filter(token => {
+      if (!token.assetId || seen.has(token.assetId)) return false;
+      seen.add(token.assetId); return true;
+    });
+    marketAssets.sort((a,b) => Number(b.price||0)-Number(a.price||0));
+    $("market-updated").textContent = "Updated " + new Date().toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});
+    renderMarketList();
+  } catch (error) {
+    $("market-updated").textContent = "Connection unavailable";
+    $("market-list").innerHTML = '<div class="market-empty"><span>!</span><b>Could not load market assets</b><small>'+escapeHtml(error.message || "Check your connection and try again.")+'</small><button class="inline-action" id="market-retry">Try again</button></div>';
+    $("market-retry")?.addEventListener("click", () => void loadMarketAssets());
+  }
+}
+$("market-search").addEventListener("input", renderMarketList);
+document.querySelectorAll("[data-market-filter]").forEach(button => button.addEventListener("click", () => {
+  marketFilter = button.dataset.marketFilter;
+  document.querySelectorAll("[data-market-filter]").forEach(item => item.classList.toggle("active",item===button));
+  renderMarketList();
+}));
+$("market-sort").addEventListener("click", () => { marketSortDescending = !marketSortDescending; $("market-sort").textContent = marketSortDescending ? "↕" : "↧"; renderMarketList(); });
+$("market-price-heading").addEventListener("click", () => { marketSortDescending = !marketSortDescending; renderMarketList(); });
+$("market-refresh").addEventListener("click", () => void loadMarketAssets());
+$("market-list").addEventListener("click", event => {
+  const button = event.target.closest("[data-favorite]");
+  if (!button) return;
+  const id = button.dataset.favorite;
+  if (marketFavorites.has(id)) marketFavorites.delete(id); else marketFavorites.add(id);
+  localStorage.setItem("domain.market.favorites", JSON.stringify([...marketFavorites]));
+  renderMarketList();
 });
