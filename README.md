@@ -67,3 +67,21 @@ Build for production with `npm run build`. Vercel should use the Vite framework 
 - Web Crypto API (PBKDF2 and AES-GCM) for device-local encryption.
 - NEAR mainnet JSON-RPC for a read-only account existence check.
 - NEAR Intents integration is planned as the next stage; no swap or intent is submitted by this release.
+
+
+## Live dashboard and NEAR Intents asset discovery
+
+The wallet dashboard reads the active wallet address and then:
+- Queries NEAR mainnet JSON-RPC for native NEAR account balance.
+- Reads indexed NEP-141 token balances from FastNear's public account fungible-token endpoint.
+- Fetches the supported token catalogue from the NEAR Intents 1Click API and matches NEAR token contract IDs to indicative USD prices.
+- Shows actual holdings when the account contains assets. The empty-wallet discovery section is hidden whenever at least one asset is held.
+- Shows a discovery list of NEAR-chain assets supported by NEAR Intents when the wallet has no indexed holdings.
+- Keeps a floating mobile navigation bar fixed to the viewport.
+
+Data caveats:
+- Token prices from the 1Click supported-token catalogue are indicative and may be stale; a live quote must be requested before a trade.
+- A token without a matching supported-token price is still displayed as a holding, but its USD value is shown as unavailable rather than invented.
+- NEAR Intents supported-token discovery is not a claim that every listed token is already held by the user.
+- Dashboard balance reads are read-only. No transaction signing, deposits, swaps, or transfers are triggered by this dashboard.
+- FastNear's public indexed endpoint is used without an API key for the initial prototype. If usage limits or production reliability require an authenticated key, request one and store it server-side; never expose a provider secret in browser code.
