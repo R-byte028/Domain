@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#080a0c">
+  <meta name="theme-color" content="#000000">
   <meta name="description" content="Domain Wallet — your gateway to the NEAR ecosystem and NEAR Intents.">
   <title>Domain Wallet</title>
   <link rel="icon" type="image/png" href="./domainlogo.png">
@@ -21,21 +21,12 @@
 
   <main id="app" class="app-shell">
     <section class="screen active" id="screen-welcome">
-      <div class="welcome-grid">
-        <div class="welcome-copy">
-          <div class="eyebrow"><span class="eyebrow-dot"></span> YOUR WEB3, WITHOUT BORDERS</div>
-          <h1>Your assets.<br><span class="gradient-text">Your domain.</span></h1>
-          <p class="lead">One calm, simple place to access the NEAR ecosystem and explore cross-chain possibilities with NEAR Intents.</p>
-          <div class="welcome-actions"><button class="btn btn-primary" data-go="choice">Get started <span>↗</span></button><button class="btn btn-quiet" data-toast="Wallet connection will be available after secure key integration.">I already have a wallet</button></div>
-          <div class="trust-row"><span>✦</span> Self-custody first <b>·</b> Built for NEAR</div>
-        </div>
-        <div class="welcome-art">
-          <img class="hero-art" src="./domain.png" alt="Domain welcome artwork">
-          <div class="art-chip chip-top"><span class="chip-pulse"></span> NEAR READY</div>
-          <div class="art-chip chip-bottom"><span class="chip-star">✦</span> A wider world of assets</div>
-        </div>
+      <div class="welcome-splash">
+        <h1 class="splash-title">Domain Wallet</h1>
+        <div class="splash-art-wrap"><img class="splash-art" src="./domain.png" alt="Domain purple energy portal"></div>
+        <h2 class="splash-tagline">Expand your portfolio</h2>
+        <button class="btn splash-button" data-go="choice">Get Started</button>
       </div>
-      <div class="feature-strip"><div><span class="feature-icon">◈</span><b>One wallet</b><small>Your keys stay yours</small></div><div><span class="feature-icon">↗</span><b>Cross-chain vision</b><small>Powered by NEAR Intents</small></div><div><span class="feature-icon">⌁</span><b>Made for clarity</b><small>Simple by design</small></div></div>
     </section>
 
     <section class="screen narrow" id="screen-choice">
