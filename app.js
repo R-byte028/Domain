@@ -426,8 +426,10 @@ function updateTradeChains() {
   $("trade-from-chain").textContent = from ? (from.blockchain || "Network").toUpperCase() + " · " + (from.contractAddress || from.assetId) : "";
   $("trade-to-chain").textContent = to ? (to.blockchain || "Network").toUpperCase() + " · " + (to.contractAddress || to.assetId) : "";
   $("recipient-help").textContent = to ? "Enter an address on " + to.blockchain + " to receive " + to.symbol + "." : "Enter an address on the destination network.";
-  if (to?.blockchain === "near" && activeWallet && !$("trade-recipient").value) $("trade-recipient").value = activeWallet.accountId;
-  if (from?.blockchain === "near" && activeWallet && !$("trade-refund").value) $("trade-refund").value = activeWallet.accountId;
+  if (activeWallet && to?.blockchain === "near" && !$("trade-recipient").value) $("trade-recipient").value = activeWallet.accountId;
+  if (activeWallet && to?.blockchain !== "near" && $("trade-recipient").value === activeWallet.accountId) $("trade-recipient").value = "";
+  if (activeWallet && from?.blockchain === "near" && !$("trade-refund").value) $("trade-refund").value = activeWallet.accountId;
+  if (activeWallet && from?.blockchain !== "near" && $("trade-refund").value === activeWallet.accountId) $("trade-refund").value = "";
   $("trade-to-amount").value = "";
   $("trade-quote-panel").innerHTML = '<span>ROUTE</span><b>Powered by NEAR Intents</b><small>Get a live quote to see the estimated output and route.</small>';
   committedTradeQuote = null;
@@ -477,7 +479,7 @@ function tradeQuoteRequest(dry) {
 function renderTradeQuote(result) {
   const q = result.quote || result;
   $("trade-to-amount").value = q.amountOutFormatted || "—";
-  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>' + escapeHtml(q.amountInFormatted || $("trade-from-amount").value) + ' ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "") + ' → ' + escapeHtml(q.amountOutFormatted || "—") + ' ' + escapeHtml(selectedTradeAsset($("trade-to-token").value)?.symbol || "") + '</b><small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Minimum received: ' + escapeHtml(q.minAmountOut ? q.minAmountOut : 'subject to quoted slippage') + '</small><small>Quote deadline: ' + escapeHtml(q.deadline || "as shown by provider") + '</small>';
+  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>' + escapeHtml(q.amountInFormatted || $("trade-from-amount").value) + ' ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "") + ' → ' + escapeHtml(q.amountOutFormatted || "—") + ' ' + escapeHtml(selectedTradeAsset($("trade-to-token").value)?.symbol || "") + '</b><small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Quote deadline: ' + escapeHtml(q.deadline || "as shown by provider") + '</small>';
 }
 $("trade-from-token").addEventListener("change", updateTradeChains);
 $("trade-to-token").addEventListener("change", updateTradeChains);
