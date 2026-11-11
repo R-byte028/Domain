@@ -120,3 +120,15 @@ The dedicated Markets tab in the floating navigation displays the live supported
 - The API does not provide 24-hour percentage change, market capitalization, or volume in its supported-token response. Domain therefore does not fabricate those metrics. A separate market-data provider integration would be required to show them.
 
 Official API reference: https://docs.agentsonintents.com/api-reference/oneclick/get-supported-tokens
+
+
+## Account / portfolio screen
+
+The Account tab has a dedicated mobile-first portfolio layout:
+- Displays the active wallet name, NEAR mainnet label, shortened address, and copy action.
+- Shows the portfolio total based on the current native NEAR and indexed NEP-141 holdings.
+- Includes a privacy toggle to blur/unblur balance values.
+- Shows a token count and a DeFi summary placeholder; DeFi positions are not yet integrated.
+- Lists held assets with indicative unit price, held quantity, and estimated USD value where a supported price is available.
+- Empty wallets show a clear receive prompt and an asset discovery list instead of fabricated holdings.
+- History is labelled as unavailable until transaction indexing is integrated; no fake transaction activity or 24-hour portfolio performance is shown.
