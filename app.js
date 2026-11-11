@@ -266,7 +266,7 @@ function resetForNewWallet() {
 $("welcome-action").addEventListener("click", () => showScreen(walletExists() ? "unlock" : "choice"));
 document.addEventListener("click", (event) => {
   const go = event.target.closest("[data-go]");
-  if (go) { event.preventDefault(); showScreen(go.dataset.go); return; }
+  if (go) { event.preventDefault(); showScreen(go.dataset.go); if (go.dataset.go === "markets") { void loadTradeAssets(); if (activeWallet) { $("trade-account-label").textContent = activeWallet.accountId.slice(0, 12) + "…"; $("trade-refund").value ||= activeWallet.accountId; } } return; }
   const note = event.target.closest("[data-toast]");
   if (note) toast(note.dataset.toast);
 });
@@ -401,3 +401,130 @@ if ("serviceWorker" in navigator) {
     .then((registrations) => registrations.forEach((registration) => registration.unregister()))
     .catch(() => {}));
 }
+
+
+// NEAR Intents 1Click swap / bridge interface
+let tradeAssets = [];
+let committedTradeQuote = null;
+let tradeMode = "swap";
+const ONE_CLICK = "https://1click.chaindefuser.com";
+function tradeAssetLabel(asset) { return asset.symbol + " · " + String(asset.blockchain || "").toUpperCase(); }
+function selectedTradeAsset(id) { return tradeAssets.find(asset => asset.assetId === id); }
+function populateTradeSelectors() {
+  const from = $("trade-from-token"), to = $("trade-to-token");
+  const currentFrom = from.value, currentTo = to.value;
+  const options = tradeAssets.map(asset => '<option value="' + escapeHtml(asset.assetId) + '">' + escapeHtml(tradeAssetLabel(asset)) + '</option>').join("");
+  from.innerHTML = options; to.innerHTML = options;
+  const preferredFrom = tradeAssets.find(asset => asset.blockchain === "near" && ["NEAR","wNEAR"].includes(asset.symbol));
+  const preferredTo = tradeAssets.find(asset => asset.symbol === "USDC" && asset.blockchain !== "near") || tradeAssets.find(asset => asset.symbol === "USDC");
+  from.value = tradeAssets.some(a => a.assetId === currentFrom) ? currentFrom : preferredFrom?.assetId || tradeAssets[0]?.assetId || "";
+  to.value = tradeAssets.some(a => a.assetId === currentTo) ? currentTo : preferredTo?.assetId || tradeAssets[1]?.assetId || "";
+  updateTradeChains();
+}
+function updateTradeChains() {
+  const from = selectedTradeAsset($("trade-from-token").value), to = selectedTradeAsset($("trade-to-token").value);
+  $("trade-from-chain").textContent = from ? (from.blockchain || "Network").toUpperCase() + " · " + (from.contractAddress || from.assetId) : "";
+  $("trade-to-chain").textContent = to ? (to.blockchain || "Network").toUpperCase() + " · " + (to.contractAddress || to.assetId) : "";
+  $("recipient-help").textContent = to ? "Enter an address on " + to.blockchain + " to receive " + to.symbol + "." : "Enter an address on the destination network.";
+  if (to?.blockchain === "near" && activeWallet && !$("trade-recipient").value) $("trade-recipient").value = activeWallet.accountId;
+  if (from?.blockchain === "near" && activeWallet && !$("trade-refund").value) $("trade-refund").value = activeWallet.accountId;
+  $("trade-to-amount").value = "";
+  $("trade-quote-panel").innerHTML = '<span>ROUTE</span><b>Powered by NEAR Intents</b><small>Get a live quote to see the estimated output and route.</small>';
+  committedTradeQuote = null;
+  $("trade-deposit-instructions").hidden = true;
+}
+async function loadTradeAssets() {
+  const list = $("markets-list");
+  if (list) list.innerHTML = '<div class="loading-card">Loading supported assets from NEAR Intents…</div>';
+  try {
+    const tokens = await fetchJson(ONE_CLICK + "/v0/tokens");
+    tradeAssets = tokens.filter(token => token.assetId && Number.isInteger(Number(token.decimals)) && Number(token.decimals) >= 0);
+    if (!tradeAssets.length) throw new Error("No supported assets were returned.");
+    populateTradeSelectors();
+    const popular = tradeAssets.filter(token => Number(token.price) > 0).sort((a,b) => Number(b.price)-Number(a.price)).slice(0,8);
+    if (list) list.innerHTML = popular.map(token => '<article class="discovery-row"><span class="asset-avatar">' + escapeHtml(token.symbol.slice(0,2)) + '</span><span class="asset-info"><b>' + escapeHtml(token.symbol) + '</b><small>' + escapeHtml(String(token.blockchain).toUpperCase()) + ' · ' + escapeHtml(token.assetId) + '</small></span><span class="asset-value"><b>' + formatUsd(Number(token.price)) + '</b><small>Indicative price</small></span></article>').join("") || '<div class="loading-card">Asset prices are not available at the moment.</div>';
+  } catch (error) {
+    if (list) list.innerHTML = '<div class="loading-card">Could not load the NEAR Intents asset list. Please refresh.</div>';
+    $("trade-error").textContent = error.message || "Could not load supported assets.";
+  }
+}
+function amountToAtomic(value, decimals) {
+  if (!/^\d+(\.\d+)?$/.test(value)) throw new Error("Enter a valid amount greater than zero.");
+  const [whole, fraction = ""] = value.split(".");
+  if (fraction.length > decimals) throw new Error("This token supports up to " + decimals + " decimal places.");
+  const atomic = BigInt(whole) * (10n ** BigInt(decimals)) + BigInt((fraction + "0".repeat(decimals)).slice(0, decimals) || "0");
+  if (atomic <= 0n) throw new Error("Enter an amount greater than zero.");
+  return atomic.toString();
+}
+function tradeQuoteRequest(dry) {
+  const from = selectedTradeAsset($("trade-from-token").value), to = selectedTradeAsset($("trade-to-token").value);
+  if (!from || !to) throw new Error("Choose both assets first.");
+  if (from.assetId === to.assetId) throw new Error("Choose two different assets.");
+  const amount = amountToAtomic($("trade-from-amount").value.trim(), Number(from.decimals));
+  const recipient = $("trade-recipient").value.trim();
+  const refundTo = $("trade-refund").value.trim();
+  if (!recipient) throw new Error("Enter the destination wallet address.");
+  if (!refundTo) throw new Error("Enter a refund address on the sell-token network.");
+  return {
+    dry, swapType: "EXACT_INPUT", slippageTolerance: Number($("trade-slippage").value),
+    originAsset: from.assetId, depositType: "ORIGIN_CHAIN", destinationAsset: to.assetId,
+    amount, recipient, recipientType: "DESTINATION_CHAIN",
+    refundTo, refundType: "ORIGIN_CHAIN",
+    deadline: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+    quoteWaitingTimeMs: 3000
+  };
+}
+function renderTradeQuote(result) {
+  const q = result.quote || result;
+  $("trade-to-amount").value = q.amountOutFormatted || "—";
+  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>' + escapeHtml(q.amountInFormatted || $("trade-from-amount").value) + ' ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "") + ' → ' + escapeHtml(q.amountOutFormatted || "—") + ' ' + escapeHtml(selectedTradeAsset($("trade-to-token").value)?.symbol || "") + '</b><small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Minimum received: ' + escapeHtml(q.minAmountOut ? q.minAmountOut : 'subject to quoted slippage') + '</small><small>Quote deadline: ' + escapeHtml(q.deadline || "as shown by provider") + '</small>';
+}
+$("trade-from-token").addEventListener("change", updateTradeChains);
+$("trade-to-token").addEventListener("change", updateTradeChains);
+$("swap-direction").addEventListener("click", () => {
+  const from = $("trade-from-token").value; $("trade-from-token").value = $("trade-to-token").value; $("trade-to-token").value = from;
+  const amount = $("trade-from-amount").value; $("trade-from-amount").value = $("trade-to-amount").value || ""; $("trade-to-amount").value = amount;
+  updateTradeChains();
+});
+$("trade-from-amount").addEventListener("input", () => { committedTradeQuote = null; $("trade-to-amount").value = ""; $("trade-deposit-instructions").hidden = true; });
+document.querySelectorAll("[data-trade-mode]").forEach(button => button.addEventListener("click", () => {
+  tradeMode = button.dataset.tradeMode;
+  document.querySelectorAll("[data-trade-mode]").forEach(item => item.classList.toggle("active", item === button));
+  $("get-trade-quote").textContent = tradeMode === "bridge" ? "Get bridge quote →" : "Get quote →";
+  $("trade-quote-panel").innerHTML = '<span>' + tradeMode.toUpperCase() + '</span><b>Powered by NEAR Intents</b><small>Choose your assets and request a fresh quote.</small>';
+}));
+$("trade-refresh-assets").addEventListener("click", () => void loadTradeAssets());
+$("get-trade-quote").addEventListener("click", async () => {
+  const button = $("get-trade-quote");
+  $("trade-error").textContent = "";
+  try {
+    const body = tradeQuoteRequest(true);
+    button.disabled = true; button.textContent = "Getting live quote…";
+    const response = await fetchJson(ONE_CLICK + "/v0/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    renderTradeQuote(response);
+    committedTradeQuote = body;
+    const action = document.createElement("button");
+    action.className = "button button-primary wide-button";
+    action.id = "commit-trade-quote";
+    action.textContent = "Create deposit instructions →";
+    $("trade-deposit-instructions").hidden = true;
+    $("trade-quote-panel").append(action);
+    action.addEventListener("click", async () => {
+      action.disabled = true; action.textContent = "Preparing deposit…";
+      try {
+        const wetBody = { ...committedTradeQuote, dry: false };
+        const committed = await fetchJson(ONE_CLICK + "/v0/quote", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(wetBody) });
+        const q = committed.quote || committed;
+        if (!q.depositAddress) throw new Error("The provider did not return a deposit address.");
+        const panel = $("trade-deposit-instructions");
+        panel.hidden = false;
+        panel.innerHTML = '<span class="deposit-label">DEPOSIT INSTRUCTIONS · EXPIRES ' + escapeHtml(q.timeWhenInactive || q.deadline || "SOON") + '</span><b>Send only ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "the selected asset") + ' to this address</b><code id="trade-deposit-address">' + escapeHtml(q.depositAddress) + '</code><button class="inline-action" id="copy-trade-deposit">Copy deposit address</button><small>Send the exact asset and network shown. This quote does not send funds. Use your source-chain wallet to make the deposit. Never send a different token or network to this address.</small>';
+        $("copy-trade-deposit").addEventListener("click", async () => { try { await navigator.clipboard.writeText(q.depositAddress); toast("Deposit address copied."); } catch { toast("Select and copy the deposit address."); } });
+        action.textContent = "Deposit instructions ready";
+      } catch (error) { $("trade-error").textContent = error.message || "Could not prepare deposit instructions."; action.disabled = false; action.textContent = "Try again"; }
+    });
+  } catch (error) {
+    $("trade-error").textContent = error.message || "Could not get a quote. Check the amount and addresses.";
+    $("trade-quote-panel").innerHTML = '<span>QUOTE UNAVAILABLE</span><b>Could not find a route</b><small>' + escapeHtml(error.message || "Try a different amount or asset pair.") + '</small>';
+  } finally { button.disabled = false; button.textContent = tradeMode === "bridge" ? "Get bridge quote →" : "Get quote →"; }
+});
