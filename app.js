@@ -623,23 +623,41 @@ function tradeQuoteRequest(dry) {
     throw new Error("Choose two different networks to bridge between.");
   }
   const amount = amountToAtomic($("trade-from-amount").value.trim(), Number(from.decimals));
+  // For a NEAR-to-NEAR swap, the connected Domain account can safely be used
+  // as the default receive/refund account. Cross-chain routes still require
+  // the user to provide addresses for the relevant external networks.
+  if (tradeMode === "swap" && activeWallet) {
+    if (!$("trade-recipient").value.trim()) $("trade-recipient").value = activeWallet.accountId;
+    if (!$("trade-refund").value.trim()) $("trade-refund").value = activeWallet.accountId;
+  }
   const recipient = $("trade-recipient").value.trim();
   const refundTo = $("trade-refund").value.trim();
-  if (!recipient) throw new Error("Enter the destination wallet address.");
-  if (!refundTo) throw new Error("Enter a refund address on the sell-token network.");
+  if (!recipient) throw new Error("Add the wallet address that should receive the tokens.");
+  if (!refundTo) throw new Error("Add a refund address for the network you are sending from.");
   return {
     dry, swapType: "EXACT_INPUT", slippageTolerance: Number($("trade-slippage").value),
     originAsset: from.assetId, depositType: "ORIGIN_CHAIN", destinationAsset: to.assetId,
     amount, recipient, recipientType: "DESTINATION_CHAIN",
     refundTo, refundType: "ORIGIN_CHAIN",
     deadline: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-    quoteWaitingTimeMs: 3000
+    quoteWaitingTimeMs: 5000
   };
 }
 function renderTradeQuote(result) {
   const q = result.quote || result;
-  $("trade-to-amount").value = q.amountOutFormatted || "—";
-  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>' + escapeHtml(q.amountInFormatted || $("trade-from-amount").value) + ' ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "") + ' → ' + escapeHtml(q.amountOutFormatted || "—") + ' ' + escapeHtml(selectedTradeAsset($("trade-to-token").value)?.symbol || "") + '</b><small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Quote deadline: ' + escapeHtml(q.deadline || "as shown by provider") + '</small>';
+  const from = selectedTradeAsset($("trade-from-token").value);
+  const to = selectedTradeAsset($("trade-to-token").value);
+  const output = q.amountOutFormatted || (q.amountOut ? formatTokenAmount(q.amountOut, Number(to?.decimals || 0)) : "");
+  if (!output) throw new Error("NEAR Intents returned a quote without an estimated receive amount. Please request a fresh quote.");
+  $("trade-to-amount").value = output;
+  const input = q.amountInFormatted || $("trade-from-amount").value;
+  const usdLine = q.amountInUsd && q.amountOutUsd
+    ? '<small>Indicative value: ' + escapeHtml(formatUsd(Number(q.amountInUsd))) + ' in → ' + escapeHtml(formatUsd(Number(q.amountOutUsd))) + ' out</small>'
+    : "";
+  const minimumLine = q.minAmountOut
+    ? '<small>Minimum receive at quoted slippage: ' + escapeHtml(formatTokenAmount(q.minAmountOut, Number(to?.decimals || 0))) + ' ' + escapeHtml(to?.symbol || "") + '</small>'
+    : "";
+  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>Estimated receive: ' + escapeHtml(output) + ' ' + escapeHtml(to?.symbol || "") + '</b><small>Paying: ' + escapeHtml(input) + ' ' + escapeHtml(from?.symbol || "") + '</small>' + usdLine + minimumLine + '<small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage setting: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Provider fees are reflected in the quoted output; network gas may be separate. Quote deadline: ' + escapeHtml(q.deadline || "refresh before depositing") + '</small>';
 }
 
 function scheduleTradePreview() {
@@ -710,7 +728,7 @@ $("get-trade-quote").addEventListener("click", async () => {
     const action = document.createElement("button");
     action.className = "button button-primary wide-button";
     action.id = "commit-trade-quote";
-    action.textContent = "Create deposit instructions →";
+    action.textContent = "Continue — prepare deposit address (no funds sent) →";
     $("trade-deposit-instructions").hidden = true;
     $("trade-quote-panel").append(action);
     action.addEventListener("click", async () => {
@@ -724,7 +742,7 @@ $("get-trade-quote").addEventListener("click", async () => {
         panel.hidden = false;
         panel.innerHTML = '<span class="deposit-label">DEPOSIT INSTRUCTIONS · EXPIRES ' + escapeHtml(q.timeWhenInactive || q.deadline || "SOON") + '</span><b>Send only ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "the selected asset") + ' to this address</b><code id="trade-deposit-address">' + escapeHtml(q.depositAddress) + '</code><button class="inline-action" id="copy-trade-deposit">Copy deposit address</button><small>Send the exact asset and network shown. This quote does not send funds. Use your source-chain wallet to make the deposit. Never send a different token or network to this address.</small>';
         $("copy-trade-deposit").addEventListener("click", async () => { try { await navigator.clipboard.writeText(q.depositAddress); toast("Deposit address copied."); } catch { toast("Select and copy the deposit address."); } });
-        action.textContent = "Deposit instructions ready";
+        action.textContent = "Deposit instructions ready — no funds sent";
       } catch (error) { $("trade-error").textContent = error.message || "Could not prepare deposit instructions."; action.disabled = false; action.textContent = "Try again"; }
     });
   } catch (error) {
