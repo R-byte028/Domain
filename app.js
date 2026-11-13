@@ -15,6 +15,12 @@ let dashboardLoadId = 0;
 let supportedNearTokens = [];
 
 const $ = (id) => document.getElementById(id);
+
+// Trade state is initialized before document-level click handlers can run.
+let allTradeAssets = [];
+let tradeAssets = [];
+let committedTradeQuote = null;
+let tradeMode = "swap";
 const toastEl = $("toast");
 function toast(message) {
   toastEl.textContent = message;
@@ -517,10 +523,7 @@ if ("serviceWorker" in navigator) {
 
 
 // NEAR Intents 1Click swap / bridge interface
-let allTradeAssets = [];
-let tradeAssets = [];
-let committedTradeQuote = null;
-let tradeMode = "swap";
+
 function tradeChain(asset) { return String(asset?.blockchain || "").toLowerCase(); }
 function tradeSymbol(asset) { return String(asset?.symbol || asset?.assetId || "Unknown"); }
 function tradeAssetLabel(asset) { return tradeSymbol(asset) + " · " + (tradeChain(asset) || "NETWORK").toUpperCase(); }
