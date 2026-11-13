@@ -157,7 +157,17 @@ async function fetchIntents(path, options = {}) {
   if (!response.ok) throw new Error(result.error || "NEAR Intents backend request failed (" + response.status + ").");
   return result;
 }
-async function fetchIntentsTokens() { return fetchIntents("tokens"); }
+async function fetchIntentsTokens() {
+  const response = await fetchIntents("tokens");
+  // The 1Click docs currently return an array. Accept common wrapped forms as
+  // well, so a provider response-shape change cannot leave selectors spinning.
+  const tokens = Array.isArray(response) ? response
+    : Array.isArray(response?.tokens) ? response.tokens
+    : Array.isArray(response?.data) ? response.data
+    : null;
+  if (!tokens) throw new Error("NEAR Intents returned an unexpected asset-list format. Please refresh and try again.");
+  return tokens;
+}
 
 async function fetchJson(url, options = {}) {
   const response = await fetch(url, { ...options, headers: { Accept: "application/json", ...(options.headers || {}) } });
@@ -516,8 +526,14 @@ async function loadTradeAssets() {
     const popular = tradeAssets.filter(token => Number(token.price) > 0).sort((a,b) => Number(b.price)-Number(a.price)).slice(0,8);
     if (list) list.innerHTML = popular.map(token => '<article class="discovery-row"><span class="asset-avatar">' + escapeHtml(token.symbol.slice(0,2)) + '</span><span class="asset-info"><b>' + escapeHtml(token.symbol) + '</b><small>' + escapeHtml(String(token.blockchain).toUpperCase()) + ' · ' + escapeHtml(token.assetId) + '</small></span><span class="asset-value"><b>' + formatUsd(Number(token.price)) + '</b><small>Indicative price</small></span></article>').join("") || '<div class="loading-card">Asset prices are not available at the moment.</div>';
   } catch (error) {
-    if (list) list.innerHTML = '<div class="loading-card">Could not load the NEAR Intents asset list. Please refresh.</div>';
-    $("trade-error").textContent = error.message || "Could not load supported assets.";
+    const message = error.message || "Could not load supported assets.";
+    // Replace the initial Loading… options on failure so the form never looks
+    // as if it is still waiting when the request has already failed.
+    const unavailable = '<option value="">Asset list unavailable — tap refresh</option>';
+    $("trade-from-token").innerHTML = unavailable;
+    $("trade-to-token").innerHTML = unavailable;
+    if (list) list.innerHTML = '<div class="loading-card">' + escapeHtml(message) + '</div>';
+    $("trade-error").textContent = message;
   }
 }
 function amountToAtomic(value, decimals) {
