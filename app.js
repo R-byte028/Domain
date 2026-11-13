@@ -159,14 +159,27 @@ async function fetchIntents(path, options = {}) {
 }
 async function fetchIntentsTokens() {
   const response = await fetchIntents("tokens");
-  // The 1Click docs currently return an array. Accept common wrapped forms as
-  // well, so a provider response-shape change cannot leave selectors spinning.
-  const tokens = Array.isArray(response) ? response
-    : Array.isArray(response?.tokens) ? response.tokens
-    : Array.isArray(response?.data) ? response.data
-    : null;
-  if (!tokens) throw new Error("NEAR Intents returned an unexpected asset-list format. Please refresh and try again.");
-  return tokens;
+  // Accept the documented array and common API gateway wrappers.
+  let value = response;
+  for (let depth = 0; depth < 4 && !Array.isArray(value); depth++) {
+    if (!value || typeof value !== "object") break;
+    value = value.tokens ?? value.assets ?? value.data ?? value.result ?? value.items ?? value;
+    if (value === response) break;
+  }
+  if (!Array.isArray(value)) {
+    const keys = response && typeof response === "object" ? Object.keys(response).join(", ") : typeof response;
+    throw new Error("Asset API returned an unexpected format (" + keys + ").");
+  }
+  return value.map(token => {
+    const item = token && typeof token === "object" ? token : {};
+    return {
+      ...item,
+      assetId: item.assetId ?? item.asset_id ?? item.id ?? "",
+      blockchain: item.blockchain ?? item.network ?? item.chain ?? "",
+      symbol: item.symbol ?? item.ticker ?? item.name ?? "",
+      decimals: item.decimals ?? item.decimal
+    };
+  });
 }
 
 async function fetchJson(url, options = {}) {
@@ -330,6 +343,26 @@ document.addEventListener("click", (event) => {
     if (go.dataset.go === "dashboard") { if (activeWallet) { void loadDashboard(); $("account-wallet-name").textContent = activeWallet.name || "Domain Wallet"; $("account-wallet-network").textContent = "NEAR MAINNET"; } }
     if (go.dataset.go === "market") { void loadMarketAssets(); if (activeWallet) { $("market-wallet-name").textContent = activeWallet.name || "Domain Wallet"; $("market-account-label").textContent = activeWallet.accountId.slice(0, 12) + "…"; } }
     if (go.dataset.go === "trade") { void loadTradeAssets(); if (activeWallet) { $("trade-account-label").textContent = activeWallet.accountId.slice(0, 12) + "…"; $("trade-refund").value ||= activeWallet.accountId; } } return; }
+  const tradeTab = event.target.closest("[data-trade-mode]");
+  if (tradeTab) {
+    event.preventDefault();
+    const nextMode = tradeTab.dataset.tradeMode;
+    if (nextMode === "swap" || nextMode === "bridge") {
+      tradeMode = nextMode;
+      document.querySelectorAll("[data-trade-mode]").forEach(item => {
+        const active = item.dataset.tradeMode === tradeMode;
+        item.classList.toggle("active", active);
+        item.setAttribute("aria-selected", active ? "true" : "false");
+      });
+      applyTradeModeAssets();
+      if (allTradeAssets.length) populateTradeSelectors();
+      $("get-trade-quote").textContent = tradeMode === "bridge" ? "Get bridge quote →" : "Get swap quote →";
+      $("trade-quote-panel").innerHTML = '<span>' + tradeMode.toUpperCase() + '</span><b>Powered by NEAR Intents</b><small>' + (tradeMode === "bridge" ? "Choose different source and destination networks." : "Choose two NEAR-network tokens.") + '</small>';
+      $("trade-error").textContent = "";
+      $("trade-error").classList.remove("is-visible");
+    }
+    return;
+  }
   const note = event.target.closest("[data-toast]");
   if (note) toast(note.dataset.toast);
 });
@@ -562,7 +595,8 @@ async function loadTradeAssets() {
     $("trade-from-token").innerHTML = unavailable;
     $("trade-to-token").innerHTML = unavailable;
     if (list) list.innerHTML = '<div class="loading-card">' + escapeHtml(message) + '</div>';
-    $("trade-error").textContent = message;
+    $("trade-error").textContent = "Asset loading failed: " + message;
+    $("trade-error").classList.add("is-visible");
   }
 }
 function amountToAtomic(value, decimals) {
