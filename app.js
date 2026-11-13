@@ -640,7 +640,6 @@ function tradeQuoteRequest(dry) {
     amount, recipient, recipientType: "DESTINATION_CHAIN",
     refundTo, refundType: "ORIGIN_CHAIN",
     deadline: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
-    quoteWaitingTimeMs: 5000
   };
 }
 function renderTradeQuote(result) {
@@ -673,7 +672,15 @@ function scheduleTradePreview() {
     $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Enter an amount to calculate</b><small>NEAR Intents will return the estimated receive amount.</small>';
     return;
   }
-  $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Getting a quote…</b><small>Requesting a live route from NEAR Intents.</small>';
+  if (tradeMode === "swap" && activeWallet) {
+    if (!$("trade-recipient").value.trim()) $("trade-recipient").value = activeWallet.accountId;
+    if (!$("trade-refund").value.trim()) $("trade-refund").value = activeWallet.accountId;
+  }
+  if (!$("trade-recipient").value.trim() || !$("trade-refund").value.trim()) {
+    $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Wallet addresses needed</b><small>Unlock your Domain Wallet or enter both the recipient and refund addresses before requesting a quote.</small>';
+    return;
+  }
+  $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Getting a quote…</b><small>Requesting a live route from NEAR Intents. This does not move funds.</small>';
   tradePreviewTimer = setTimeout(async () => {
     try {
       const body = tradeQuoteRequest(true);
@@ -716,39 +723,64 @@ document.querySelectorAll("[data-trade-mode]").forEach(button => button.addEvent
   $("trade-error").textContent = "";
 }));
 $("trade-refresh-assets").addEventListener("click", () => void loadTradeAssets());
-$("get-trade-quote").addEventListener("click", async () => {
+$("get-trade-quote").addEventListener("click", async (event) => {
+  event.preventDefault();
   const button = $("get-trade-quote");
-  $("trade-error").textContent = "";
+  const panel = $("trade-quote-panel");
+  const errorBox = $("trade-error");
+  errorBox.textContent = "";
+  button.disabled = true;
+  button.textContent = "Requesting live quote…";
+  panel.innerHTML = '<span>NEAR INTENTS</span><b>Requesting your quote…</b><small>Checking the selected route and live market price. No funds will move.</small>';
   try {
     const body = tradeQuoteRequest(true);
-    button.disabled = true; button.textContent = "Getting live quote…";
-    const response = await fetchIntents("quote", { method: "POST", body: JSON.stringify({ action: "quote", payload: body }) });
+    const response = await fetchIntents("quote", {
+      method: "POST",
+      body: JSON.stringify({ action: "quote", payload: body })
+    });
     renderTradeQuote(response);
     committedTradeQuote = body;
     const action = document.createElement("button");
+    action.type = "button";
     action.className = "button button-primary wide-button";
     action.id = "commit-trade-quote";
     action.textContent = "Continue — prepare deposit address (no funds sent) →";
     $("trade-deposit-instructions").hidden = true;
-    $("trade-quote-panel").append(action);
+    panel.append(action);
     action.addEventListener("click", async () => {
-      action.disabled = true; action.textContent = "Preparing deposit…";
+      action.disabled = true;
+      action.textContent = "Preparing deposit…";
+      errorBox.textContent = "";
       try {
         const wetBody = { ...committedTradeQuote, dry: false };
-        const committed = await fetchIntents("quote", { method: "POST", body: JSON.stringify({ action: "quote", payload: wetBody }) });
+        const committed = await fetchIntents("quote", {
+          method: "POST",
+          body: JSON.stringify({ action: "quote", payload: wetBody })
+        });
         const q = committed.quote || committed;
-        if (!q.depositAddress) throw new Error("The provider did not return a deposit address.");
+        if (!q.depositAddress) throw new Error("NEAR Intents did not return a deposit address. No funds have been sent.");
         const panel = $("trade-deposit-instructions");
         panel.hidden = false;
-        panel.innerHTML = '<span class="deposit-label">DEPOSIT INSTRUCTIONS · EXPIRES ' + escapeHtml(q.timeWhenInactive || q.deadline || "SOON") + '</span><b>Send only ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "the selected asset") + ' to this address</b><code id="trade-deposit-address">' + escapeHtml(q.depositAddress) + '</code><button class="inline-action" id="copy-trade-deposit">Copy deposit address</button><small>Send the exact asset and network shown. This quote does not send funds. Use your source-chain wallet to make the deposit. Never send a different token or network to this address.</small>';
-        $("copy-trade-deposit").addEventListener("click", async () => { try { await navigator.clipboard.writeText(q.depositAddress); toast("Deposit address copied."); } catch { toast("Select and copy the deposit address."); } });
+        panel.innerHTML = '<span class="deposit-label">DEPOSIT INSTRUCTIONS · EXPIRES ' + escapeHtml(q.timeWhenInactive || q.deadline || "SOON") + '</span><b>Send only ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "the selected asset") + ' to this address</b><code id="trade-deposit-address">' + escapeHtml(q.depositAddress) + '</code><button type="button" class="inline-action" id="copy-trade-deposit">Copy deposit address</button><small>Sending is a separate step. This page has not moved funds. Verify the exact asset, network, amount and refund details before any deposit.</small>';
+        $("copy-trade-deposit").addEventListener("click", async () => {
+          try { await navigator.clipboard.writeText(q.depositAddress); toast("Deposit address copied."); }
+          catch { toast("Select and copy the deposit address."); }
+        });
         action.textContent = "Deposit instructions ready — no funds sent";
-      } catch (error) { $("trade-error").textContent = error.message || "Could not prepare deposit instructions."; action.disabled = false; action.textContent = "Try again"; }
+      } catch (error) {
+        errorBox.textContent = error.message || "Could not prepare deposit instructions.";
+        action.disabled = false;
+        action.textContent = "Try again";
+      }
     });
   } catch (error) {
-    $("trade-error").textContent = error.message || "Could not get a quote. Check the amount and addresses.";
-    $("trade-quote-panel").innerHTML = '<span>QUOTE UNAVAILABLE</span><b>Could not find a route</b><small>' + escapeHtml(error.message || "Try a different amount or asset pair.") + '</small>';
-  } finally { button.disabled = false; button.textContent = tradeMode === "bridge" ? "Get bridge quote →" : "Get quote →"; }
+    const message = error.message || "Could not get a quote. Check the amount and addresses.";
+    errorBox.textContent = message;
+    panel.innerHTML = '<span>QUOTE UNAVAILABLE</span><b>Could not get a live quote</b><small>' + escapeHtml(message) + '</small><small>No funds have been sent. Correct the details and try again.</small>';
+  } finally {
+    button.disabled = false;
+    button.textContent = tradeMode === "bridge" ? "Get bridge quote →" : "Get swap quote →";
+  }
 });
 
 
