@@ -21,6 +21,8 @@ let allTradeAssets = [];
 let tradeAssets = [];
 let committedTradeQuote = null;
 let tradeMode = "swap";
+let tradePreviewTimer = null;
+let tradePreviewRequest = 0;
 const toastEl = $("toast");
 function toast(message) {
   toastEl.textContent = message;
@@ -639,14 +641,46 @@ function renderTradeQuote(result) {
   $("trade-to-amount").value = q.amountOutFormatted || "—";
   $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>' + escapeHtml(q.amountInFormatted || $("trade-from-amount").value) + ' ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "") + ' → ' + escapeHtml(q.amountOutFormatted || "—") + ' ' + escapeHtml(selectedTradeAsset($("trade-to-token").value)?.symbol || "") + '</b><small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Quote deadline: ' + escapeHtml(q.deadline || "as shown by provider") + '</small>';
 }
-$("trade-from-token").addEventListener("change", updateTradeChains);
-$("trade-to-token").addEventListener("change", updateTradeChains);
+
+function scheduleTradePreview() {
+  clearTimeout(tradePreviewTimer);
+  const requestId = ++tradePreviewRequest;
+  committedTradeQuote = null;
+  $("trade-to-amount").value = "";
+  $("trade-deposit-instructions").hidden = true;
+  const amount = $("trade-from-amount").value.trim();
+  const from = selectedTradeAsset($("trade-from-token").value);
+  const to = selectedTradeAsset($("trade-to-token").value);
+  if (!amount || Number(amount) <= 0 || !from || !to) {
+    $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Enter an amount to calculate</b><small>NEAR Intents will return the estimated receive amount.</small>';
+    return;
+  }
+  $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Getting a quote…</b><small>Requesting a live route from NEAR Intents.</small>';
+  tradePreviewTimer = setTimeout(async () => {
+    try {
+      const body = tradeQuoteRequest(true);
+      const result = await fetchIntents("quote", { method: "POST", body: JSON.stringify({ action: "quote", payload: body }) });
+      if (requestId !== tradePreviewRequest) return;
+      renderTradeQuote(result);
+      $("trade-quote-panel").insertAdjacentHTML("beforeend", '<small>Indicative quote only. Review and request a fresh quote before depositing.</small>');
+    } catch (error) {
+      if (requestId !== tradePreviewRequest) return;
+      $("trade-to-amount").value = "";
+      $("trade-quote-panel").innerHTML = '<span>QUOTE UNAVAILABLE</span><b>No estimate yet</b><small>' + escapeHtml(error.message || "Enter valid addresses and try again.") + '</small>';
+    }
+  }, 650);
+}
+$("trade-from-token").addEventListener("change", () => { updateTradeChains(); scheduleTradePreview(); });
+$("trade-to-token").addEventListener("change", () => { updateTradeChains(); scheduleTradePreview(); });
 $("swap-direction").addEventListener("click", () => {
   const from = $("trade-from-token").value; $("trade-from-token").value = $("trade-to-token").value; $("trade-to-token").value = from;
   const amount = $("trade-from-amount").value; $("trade-from-amount").value = $("trade-to-amount").value || ""; $("trade-to-amount").value = amount;
   updateTradeChains();
 });
-$("trade-from-amount").addEventListener("input", () => { committedTradeQuote = null; $("trade-to-amount").value = ""; $("trade-deposit-instructions").hidden = true; });
+$("trade-from-amount").addEventListener("input", scheduleTradePreview);
+$("trade-recipient").addEventListener("input", scheduleTradePreview);
+$("trade-refund").addEventListener("input", scheduleTradePreview);
+$("trade-slippage").addEventListener("change", scheduleTradePreview);
 document.querySelectorAll("[data-trade-mode]").forEach(button => button.addEventListener("click", () => {
   const nextMode = button.dataset.tradeMode;
   if (nextMode !== tradeMode) {
