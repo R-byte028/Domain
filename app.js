@@ -484,32 +484,48 @@ if ("serviceWorker" in navigator) {
 
 
 // NEAR Intents 1Click swap / bridge interface
+let allTradeAssets = [];
 let tradeAssets = [];
 let committedTradeQuote = null;
 let tradeMode = "swap";
-const ONE_CLICK = "https://1click.chaindefuser.com";
-function tradeAssetLabel(asset) { return asset.symbol + " · " + String(asset.blockchain || "").toUpperCase(); }
+function tradeChain(asset) { return String(asset?.blockchain || "").toLowerCase(); }
+function tradeSymbol(asset) { return String(asset?.symbol || asset?.assetId || "Unknown"); }
+function tradeAssetLabel(asset) { return tradeSymbol(asset) + " · " + (tradeChain(asset) || "NETWORK").toUpperCase(); }
 function selectedTradeAsset(id) { return tradeAssets.find(asset => asset.assetId === id); }
+function applyTradeModeAssets() {
+  tradeAssets = tradeMode === "swap"
+    ? allTradeAssets.filter(asset => tradeChain(asset) === "near")
+    : allTradeAssets.filter(asset => tradeChain(asset));
+  const description = $("trade-mode-description");
+  if (description) description.textContent = tradeMode === "swap"
+    ? "Swap NEAR and supported NEAR ecosystem tokens only."
+    : "Bridge between networks supported by NEAR Intents. Choose different source and destination networks.";
+  const title = document.querySelector(".trade-discovery .section-title p");
+  if (title) title.textContent = tradeMode === "swap" ? "NEAR tokens available through 1Click" : "Cross-network assets available through 1Click";
+}
 function populateTradeSelectors() {
   const from = $("trade-from-token"), to = $("trade-to-token");
   const currentFrom = from.value, currentTo = to.value;
   const options = tradeAssets.map(asset => '<option value="' + escapeHtml(asset.assetId) + '">' + escapeHtml(tradeAssetLabel(asset)) + '</option>').join("");
-  from.innerHTML = options; to.innerHTML = options;
-  const preferredFrom = tradeAssets.find(asset => asset.blockchain === "near" && ["NEAR","wNEAR"].includes(asset.symbol));
-  const preferredTo = tradeAssets.find(asset => asset.symbol === "USDC" && asset.blockchain !== "near") || tradeAssets.find(asset => asset.symbol === "USDC");
+  from.innerHTML = options || '<option value="">No supported assets for this mode</option>';
+  to.innerHTML = options || '<option value="">No supported assets for this mode</option>';
+  const preferredFrom = tradeAssets.find(asset => tradeSymbol(asset).toUpperCase() === "NEAR") || tradeAssets.find(asset => tradeSymbol(asset).toUpperCase() === "WNEAR");
+  const preferredTo = tradeMode === "bridge"
+    ? tradeAssets.find(asset => tradeSymbol(asset).toUpperCase() === "USDC" && tradeChain(asset) !== "near")
+    : tradeAssets.find(asset => tradeSymbol(asset).toUpperCase() === "USDC");
   from.value = tradeAssets.some(a => a.assetId === currentFrom) ? currentFrom : preferredFrom?.assetId || tradeAssets[0]?.assetId || "";
-  to.value = tradeAssets.some(a => a.assetId === currentTo) ? currentTo : preferredTo?.assetId || tradeAssets[1]?.assetId || "";
+  to.value = tradeAssets.some(a => a.assetId === currentTo) ? currentTo : preferredTo?.assetId || tradeAssets.find(a => a.assetId !== from.value)?.assetId || "";
   updateTradeChains();
 }
 function updateTradeChains() {
   const from = selectedTradeAsset($("trade-from-token").value), to = selectedTradeAsset($("trade-to-token").value);
   $("trade-from-chain").textContent = from ? (from.blockchain || "Network").toUpperCase() + " · " + (from.contractAddress || from.assetId) : "";
   $("trade-to-chain").textContent = to ? (to.blockchain || "Network").toUpperCase() + " · " + (to.contractAddress || to.assetId) : "";
-  $("recipient-help").textContent = to ? "Enter an address on " + to.blockchain + " to receive " + to.symbol + "." : "Enter an address on the destination network.";
-  if (activeWallet && to?.blockchain === "near" && !$("trade-recipient").value) $("trade-recipient").value = activeWallet.accountId;
-  if (activeWallet && to?.blockchain !== "near" && $("trade-recipient").value === activeWallet.accountId) $("trade-recipient").value = "";
-  if (activeWallet && from?.blockchain === "near" && !$("trade-refund").value) $("trade-refund").value = activeWallet.accountId;
-  if (activeWallet && from?.blockchain !== "near" && $("trade-refund").value === activeWallet.accountId) $("trade-refund").value = "";
+  $("recipient-help").textContent = to ? "Enter an address on " + (tradeChain(to) || "the destination network") + " to receive " + tradeSymbol(to) + "." : "Enter an address on the destination network.";
+  if (activeWallet && tradeChain(to) === "near" && !$("trade-recipient").value) $("trade-recipient").value = activeWallet.accountId;
+  if (activeWallet && tradeChain(to) !== "near" && $("trade-recipient").value === activeWallet.accountId) $("trade-recipient").value = "";
+  if (activeWallet && tradeChain(from) === "near" && !$("trade-refund").value) $("trade-refund").value = activeWallet.accountId;
+  if (activeWallet && tradeChain(from) !== "near" && $("trade-refund").value === activeWallet.accountId) $("trade-refund").value = "";
   $("trade-to-amount").value = "";
   $("trade-quote-panel").innerHTML = '<span>ROUTE</span><b>Powered by NEAR Intents</b><small>Get a live quote to see the estimated output and route.</small>';
   committedTradeQuote = null;
@@ -518,17 +534,30 @@ function updateTradeChains() {
 async function loadTradeAssets() {
   const list = $("markets-list");
   if (list) list.innerHTML = '<div class="loading-card">Loading supported assets from NEAR Intents…</div>';
+  $("trade-error").textContent = "";
   try {
-    const tokens = await fetchIntentsTokens();
-    tradeAssets = tokens.filter(token => token.assetId && Number.isInteger(Number(token.decimals)) && Number(token.decimals) >= 0);
-    if (!tradeAssets.length) throw new Error("No supported assets were returned.");
+    const response = await fetchIntentsTokens();
+    allTradeAssets = response.filter(token =>
+      token && typeof token.assetId === "string" && token.assetId.length > 0 &&
+      Number.isInteger(Number(token.decimals)) && Number(token.decimals) >= 0 &&
+      typeof token.blockchain === "string" && token.blockchain.length > 0
+    );
+    if (!allTradeAssets.length) throw new Error("NEAR Intents returned no usable assets. Refresh to try again.");
+    applyTradeModeAssets();
     populateTradeSelectors();
-    const popular = tradeAssets.filter(token => Number(token.price) > 0).sort((a,b) => Number(b.price)-Number(a.price)).slice(0,8);
-    if (list) list.innerHTML = popular.map(token => '<article class="discovery-row"><span class="asset-avatar">' + escapeHtml(token.symbol.slice(0,2)) + '</span><span class="asset-info"><b>' + escapeHtml(token.symbol) + '</b><small>' + escapeHtml(String(token.blockchain).toUpperCase()) + ' · ' + escapeHtml(token.assetId) + '</small></span><span class="asset-value"><b>' + formatUsd(Number(token.price)) + '</b><small>Indicative price</small></span></article>').join("") || '<div class="loading-card">Asset prices are not available at the moment.</div>';
+    if (!tradeAssets.length) {
+      if (list) list.innerHTML = '<div class="loading-card">No assets are currently listed for this mode.</div>';
+      $("trade-error").textContent = "No supported assets are currently listed for this mode.";
+      return;
+    }
+    const popular = tradeAssets.filter(token => Number(token.price) > 0)
+      .sort((a,b) => Number(b.price)-Number(a.price)).slice(0,8);
+    if (list) list.innerHTML = popular.length ? popular.map(token => {
+      const symbol = tradeSymbol(token);
+      return '<article class="discovery-row"><span class="asset-avatar">' + escapeHtml(symbol.slice(0,2)) + '</span><span class="asset-info"><b>' + escapeHtml(symbol) + '</b><small>' + escapeHtml(tradeChain(token).toUpperCase()) + ' · ' + escapeHtml(token.assetId) + '</small></span><span class="asset-value"><b>' + formatUsd(Number(token.price)) + '</b><small>Indicative price</small></span></article>';
+    }).join("") : '<div class="loading-card">Assets are available; live prices are not available at the moment.</div>';
   } catch (error) {
     const message = error.message || "Could not load supported assets.";
-    // Replace the initial Loading… options on failure so the form never looks
-    // as if it is still waiting when the request has already failed.
     const unavailable = '<option value="">Asset list unavailable — tap refresh</option>';
     $("trade-from-token").innerHTML = unavailable;
     $("trade-to-token").innerHTML = unavailable;
@@ -548,6 +577,12 @@ function tradeQuoteRequest(dry) {
   const from = selectedTradeAsset($("trade-from-token").value), to = selectedTradeAsset($("trade-to-token").value);
   if (!from || !to) throw new Error("Choose both assets first.");
   if (from.assetId === to.assetId) throw new Error("Choose two different assets.");
+  if (tradeMode === "swap" && (tradeChain(from) !== "near" || tradeChain(to) !== "near")) {
+    throw new Error("Swap is limited to NEAR-network tokens. Use Bridge for other networks.");
+  }
+  if (tradeMode === "bridge" && tradeChain(from) === tradeChain(to)) {
+    throw new Error("Choose two different networks to bridge between.");
+  }
   const amount = amountToAtomic($("trade-from-amount").value.trim(), Number(from.decimals));
   const recipient = $("trade-recipient").value.trim();
   const refundTo = $("trade-refund").value.trim();
@@ -578,8 +613,11 @@ $("trade-from-amount").addEventListener("input", () => { committedTradeQuote = n
 document.querySelectorAll("[data-trade-mode]").forEach(button => button.addEventListener("click", () => {
   tradeMode = button.dataset.tradeMode;
   document.querySelectorAll("[data-trade-mode]").forEach(item => item.classList.toggle("active", item === button));
-  $("get-trade-quote").textContent = tradeMode === "bridge" ? "Get bridge quote →" : "Get quote →";
-  $("trade-quote-panel").innerHTML = '<span>' + tradeMode.toUpperCase() + '</span><b>Powered by NEAR Intents</b><small>Choose your assets and request a fresh quote.</small>';
+  applyTradeModeAssets();
+  if (allTradeAssets.length) populateTradeSelectors();
+  $("get-trade-quote").textContent = tradeMode === "bridge" ? "Get bridge quote →" : "Get swap quote →";
+  $("trade-quote-panel").innerHTML = '<span>' + tradeMode.toUpperCase() + '</span><b>Powered by NEAR Intents</b><small>' + (tradeMode === "bridge" ? "Choose different source and destination networks." : "Choose two NEAR-network tokens.") + '</small>';
+  $("trade-error").textContent = "";
 }));
 $("trade-refresh-assets").addEventListener("click", () => void loadTradeAssets());
 $("get-trade-quote").addEventListener("click", async () => {
