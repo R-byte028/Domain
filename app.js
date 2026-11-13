@@ -611,7 +611,14 @@ $("swap-direction").addEventListener("click", () => {
 });
 $("trade-from-amount").addEventListener("input", () => { committedTradeQuote = null; $("trade-to-amount").value = ""; $("trade-deposit-instructions").hidden = true; });
 document.querySelectorAll("[data-trade-mode]").forEach(button => button.addEventListener("click", () => {
-  tradeMode = button.dataset.tradeMode;
+  const nextMode = button.dataset.tradeMode;
+  if (nextMode !== tradeMode) {
+    $("trade-from-token").value = "";
+    $("trade-to-token").value = "";
+    $("trade-recipient").value = "";
+    $("trade-refund").value = "";
+  }
+  tradeMode = nextMode;
   document.querySelectorAll("[data-trade-mode]").forEach(item => item.classList.toggle("active", item === button));
   applyTradeModeAssets();
   if (allTradeAssets.length) populateTradeSelectors();
