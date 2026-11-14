@@ -191,3 +191,5 @@
 .home-section>a{display:block;margin:10px 0;padding:14px;border:1px solid #ffffff12;border-radius:13px;background:#15121c;color:#d9c7ef;text-decoration:none;font-size:12px}
 .home-disclaimer{margin-top:25px;padding-top:15px;border-top:1px solid #ffffff12}
 @media(max-width:420px){.home-header{padding:0 15px}.home-content{width:calc(100% - 26px)}.home-welcome{padding:23px 18px}.home-welcome h1{font-size:37px}.home-quick-actions{gap:7px}.home-quick-actions button{font-size:10px}.home-section h2{font-size:18px}}
+
+.trade-quote-warning{display:block;margin-top:8px;padding:10px 12px;border:1px solid #f0a45a66;border-radius:10px;background:#4a2b171f;color:#ffc58c!important;line-height:1.55}
