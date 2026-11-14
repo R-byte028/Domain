@@ -671,8 +671,19 @@ function renderTradeQuote(result) {
   const minimumLine = q.minAmountOut
     ? '<small>Minimum receive at quoted slippage: ' + escapeHtml(formatTokenAmount(q.minAmountOut, Number(to?.decimals || 0))) + ' ' + escapeHtml(to?.symbol || "") + '</small>'
     : "";
+  const inUsd = Number(q.amountInUsd), outUsd = Number(q.amountOutUsd);
+  const valueGap = Number.isFinite(inUsd) && inUsd > 0 && Number.isFinite(outUsd)
+    ? Math.max(0, (inUsd - outUsd) / inUsd * 100)
+    : null;
+  const valueGapLine = valueGap !== null
+    ? '<small>Indicative value difference: ' + valueGap.toFixed(2) + '% (includes route pricing and may include liquidity impact, spread and fees; it is not the platform fee alone).</small>'
+    : "";
+  const riskLine = valueGap !== null && valueGap > 2
+    ? '<small class="trade-quote-warning">Review before proceeding: the indicative output value is more than 2% below the input value. Check token identity, network, route and liquidity. Do not deposit if this is unexpected.</small>'
+    : "";
+  const destinationLine = '<small>Destination network: ' + escapeHtml(String(to?.blockchain || "network not specified").toUpperCase()) + (to?.contractAddress ? ' · Token contract: ' + escapeHtml(to.contractAddress) : '') + '</small>';
   const feeLine = estimateIntentsFee();
-  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>Estimated receive: ' + escapeHtml(output) + ' ' + escapeHtml(to?.symbol || "") + '</b><small>Paying: ' + escapeHtml(input) + ' ' + escapeHtml(from?.symbol || "") + '</small>' + usdLine + minimumLine + (feeLine ? '<small>' + escapeHtml(feeLine) + '</small>' : '') + '<small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage setting: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Quote deadline: ' + escapeHtml(q.deadline || "refresh before depositing") + '</small>';
+  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>Estimated receive: ' + escapeHtml(output) + ' ' + escapeHtml(to?.symbol || "") + '</b><small>Paying: ' + escapeHtml(input) + ' ' + escapeHtml(from?.symbol || "") + '</small>' + destinationLine + usdLine + valueGapLine + riskLine + minimumLine + (feeLine ? '<small>' + escapeHtml(feeLine) + '</small>' : '') + '<small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage setting: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Quote deadline: ' + escapeHtml(q.deadline || "refresh before depositing") + '</small>';
 }
 
 function scheduleTradePreview() {
