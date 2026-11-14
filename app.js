@@ -150,6 +150,13 @@ async function checkOnChainAccount() {
 function formatUsd(value) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 2 }).format(value);
 }
+function formatUsdPrecise(value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "Unavailable";
+  const digits = n > 0 && n < 0.01 ? 6 : n > 0 && n < 1 ? 4 : 2;
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
+}
+let currentQuoteRiskGap = null;
 function formatTokenAmount(raw, decimals) {
   const value = Number(raw) / (10 ** decimals);
   if (!Number.isFinite(value)) return "—";
@@ -644,18 +651,52 @@ function tradeQuoteRequest(dry) {
     deadline: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
   };
 }
-function estimateIntentsFee() {
-  const from = selectedTradeAsset($("trade-from-token").value);
-  const to = selectedTradeAsset($("trade-to-token").value);
-  const amount = Number($("trade-from-amount").value);
-  if (!from || !to || !Number.isFinite(amount) || amount <= 0) return "";
-  const stable = new Set(["USDC", "USDT", "DAI"]);
-  const stablePair = stable.has(tradeSymbol(from).toUpperCase()) && stable.has(tradeSymbol(to).toUpperCase());
-  const sameAssetAcrossChains = tradeSymbol(from).toUpperCase() === tradeSymbol(to).toUpperCase() && tradeChain(from) !== tradeChain(to);
-  const bps = stablePair || sameAssetAcrossChains ? 1 : 20;
-  const fee = amount * bps / 10000;
-  const formatted = new Intl.NumberFormat("en-US", { maximumFractionDigits: Math.min(8, Number(from.decimals) || 8) }).format(fee);
-  return "Indicative 1Click platform fee: about " + formatted + " " + tradeSymbol(from) + " (" + (bps / 100).toFixed(2) + "%). The final quote is authoritative; network gas may be separate.";
+function quoteFeeBreakdown(q) {
+  // Only show fee components actually returned by the live API. The documented
+  // standard Quote schema does not guarantee separately itemized platform fees.
+  const rows = [];
+  const add = (label, value) => {
+    if (value !== undefined && value !== null && value !== "") rows.push(label + ": " + String(value));
+  };
+  add("Withdrawal fee", q.withdrawFeeFormatted);
+  add("Withdrawal fee (USD)", q.withdrawFeeUsd);
+  add("Platform fee", q.platformFeeFormatted ?? q.platformFee);
+  add("Refund fee", q.refundFeeFormatted ?? q.refundFee);
+  if (Array.isArray(q.fees)) {
+    q.fees.forEach((fee, index) => {
+      if (!fee || typeof fee !== "object") return;
+      const label = fee.label || fee.name || fee.type || ("Fee " + (index + 1));
+      const amount = fee.amountFormatted ?? fee.formattedAmount ?? fee.amount ?? fee.value;
+      const asset = fee.assetSymbol || fee.symbol || "";
+      if (amount !== undefined && amount !== null) add(String(label), String(amount) + (asset ? " " + asset : ""));
+    });
+  }
+  return rows.length
+    ? '<small>Live fee details: ' + escapeHtml(rows.join(" · ")) + '</small>'
+    : '<small>Fee breakdown: 1Click did not separately itemize fee components in this quote. The estimated receive amount reflects the quoted route; network costs may also apply.</small>';
+}
+function tokenPriceCheck(token, quoteUsd, quoteAmount, side) {
+  const cataloguePrice = Number(token?.price);
+  const quoteValue = Number(quoteUsd);
+  const amount = Number(quoteAmount);
+  const updated = token?.priceUpdatedAt ? Date.parse(token.priceUpdatedAt) : NaN;
+  const freshness = Number.isFinite(updated)
+    ? (Date.now() - updated > 30 * 60 * 1000 ? "catalogue price may be stale" : "catalogue price timestamp " + new Date(updated).toLocaleString())
+    : "catalogue timestamp unavailable";
+  const catalogue = Number.isFinite(cataloguePrice) && cataloguePrice > 0
+    ? formatUsdPrecise(cataloguePrice) + " per " + (token.symbol || "token")
+    : "catalogue price unavailable";
+  const implied = Number.isFinite(quoteValue) && quoteValue > 0 && Number.isFinite(amount) && amount > 0
+    ? quoteValue / amount : NaN;
+  const impliedText = Number.isFinite(implied) && implied > 0
+    ? formatUsdPrecise(implied) + " per " + (token.symbol || "token") + " implied by quote"
+    : "quote-implied unit price unavailable";
+  let comparison = "";
+  if (Number.isFinite(cataloguePrice) && cataloguePrice > 0 && Number.isFinite(implied) && implied > 0) {
+    const delta = Math.abs(implied - cataloguePrice) / cataloguePrice * 100;
+    comparison = " · " + (delta > 5 ? "PRICE MISMATCH " : "price difference ") + delta.toFixed(2) + "%";
+  }
+  return '<small>' + escapeHtml(side + " price check: " + catalogue + " · " + impliedText + " · " + freshness + comparison) + '</small>';
 }
 function renderTradeQuote(result) {
   const q = result.quote || result;
@@ -665,31 +706,37 @@ function renderTradeQuote(result) {
   if (!output) throw new Error("NEAR Intents returned a quote without an estimated receive amount. Please request a fresh quote.");
   $("trade-to-amount").value = output;
   const input = q.amountInFormatted || $("trade-from-amount").value;
-  const usdLine = q.amountInUsd && q.amountOutUsd
-    ? '<small>Indicative value: ' + escapeHtml(formatUsd(Number(q.amountInUsd))) + ' in → ' + escapeHtml(formatUsd(Number(q.amountOutUsd))) + ' out</small>'
+  const usdLine = q.amountInUsd !== undefined && q.amountOutUsd !== undefined
+    ? '<small>Indicative value: ' + escapeHtml(formatUsdPrecise(q.amountInUsd)) + ' in → ' + escapeHtml(formatUsdPrecise(q.amountOutUsd)) + ' out (display estimate only)</small>'
     : "";
   const minimumLine = q.minAmountOut
     ? '<small>Minimum receive at quoted slippage: ' + escapeHtml(formatTokenAmount(q.minAmountOut, Number(to?.decimals || 0))) + ' ' + escapeHtml(to?.symbol || "") + '</small>'
     : "";
   const inUsd = Number(q.amountInUsd), outUsd = Number(q.amountOutUsd);
-  const valueGap = Number.isFinite(inUsd) && inUsd > 0 && Number.isFinite(outUsd)
+  const valueGap = Number.isFinite(inUsd) && inUsd > 0 && Number.isFinite(outUsd) && outUsd >= 0
     ? Math.max(0, (inUsd - outUsd) / inUsd * 100)
     : null;
+  currentQuoteRiskGap = valueGap;
   const valueGapLine = valueGap !== null
-    ? '<small>Indicative value difference: ' + valueGap.toFixed(2) + '% (includes route pricing and may include liquidity impact, spread and fees; it is not the platform fee alone).</small>'
-    : "";
+    ? '<small>Indicative value difference: ' + valueGap.toFixed(2) + '% (display-only USD estimates; not a fee calculation or guaranteed execution price).</small>'
+    : '<small>Indicative value difference unavailable: 1Click did not provide usable USD values for both sides.</small>';
   const riskLine = valueGap !== null && valueGap > 2
-    ? '<small class="trade-quote-warning">Review before proceeding: the indicative output value is more than 2% below the input value. Check token identity, network, route and liquidity. Do not deposit if this is unexpected.</small>'
+    ? '<small class="trade-quote-warning">Route review required: the indicative output value is more than 2% below the input value. Check both asset IDs/contracts, networks, quoted amounts, price timestamps and fee information before continuing.</small>'
     : "";
   const destinationLine = '<small>Destination network: ' + escapeHtml(String(to?.blockchain || "network not specified").toUpperCase()) + (to?.contractAddress ? ' · Token contract: ' + escapeHtml(to.contractAddress) : '') + '</small>';
-  const feeLine = estimateIntentsFee();
-  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>Estimated receive: ' + escapeHtml(output) + ' ' + escapeHtml(to?.symbol || "") + '</b><small>Paying: ' + escapeHtml(input) + ' ' + escapeHtml(from?.symbol || "") + '</small>' + destinationLine + usdLine + valueGapLine + riskLine + minimumLine + (feeLine ? '<small>' + escapeHtml(feeLine) + '</small>' : '') + '<small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage setting: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Quote deadline: ' + escapeHtml(q.deadline || "refresh before depositing") + '</small>';
+  const inputAmount = q.amountInFormatted ?? $("trade-from-amount").value;
+  const outputAmount = q.amountOutFormatted ?? output;
+  const priceChecks = tokenPriceCheck(from, q.amountInUsd, inputAmount, "Input") +
+    tokenPriceCheck(to, q.amountOutUsd, outputAmount, "Output");
+  const feeBreakdown = quoteFeeBreakdown(q);
+  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>Estimated receive: ' + escapeHtml(output) + ' ' + escapeHtml(to?.symbol || "") + '</b><small>Paying: ' + escapeHtml(input) + ' ' + escapeHtml(from?.symbol || "") + '</small>' + destinationLine + usdLine + valueGapLine + riskLine + priceChecks + feeBreakdown + minimumLine + '<small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage setting: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Quote deadline: ' + escapeHtml(q.deadline || "refresh before depositing") + '</small>';
 }
 
 function scheduleTradePreview() {
   clearTimeout(tradePreviewTimer);
   const requestId = ++tradePreviewRequest;
   committedTradeQuote = null;
+  currentQuoteRiskGap = null;
   $("trade-to-amount").value = "";
   $("trade-deposit-instructions").hidden = true;
   const amount = $("trade-from-amount").value.trim();
@@ -707,8 +754,7 @@ function scheduleTradePreview() {
     $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Wallet addresses needed</b><small>Unlock your Domain Wallet or enter both the recipient and refund addresses before requesting a quote.</small>';
     return;
   }
-  const feeHint = estimateIntentsFee();
-  $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Getting a quote…</b><small>Requesting a live route from NEAR Intents. This does not move funds.</small>' + (feeHint ? '<small>' + escapeHtml(feeHint) + '</small>' : '');
+  $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Getting a quote…</b><small>Requesting a live route from NEAR Intents. This does not move funds.</small>';
   tradePreviewTimer = setTimeout(async () => {
     try {
       const body = tradeQuoteRequest(true);
@@ -783,6 +829,13 @@ async function handleTradeQuote(button) {
     $("trade-deposit-instructions").hidden = true;
     panel.append(action);
     action.addEventListener("click", async () => {
+      if (currentQuoteRiskGap !== null && currentQuoteRiskGap > 2) {
+        const approved = window.confirm(
+          "ROUTE REVIEW REQUIRED\\n\\nThe indicative USD value difference is " + currentQuoteRiskGap.toFixed(2) +
+          "%. Review the exact token contracts, networks, amounts, price checks and fee information in the quote.\\n\\nPrepare a deposit address anyway? No funds will be sent by this confirmation."
+        );
+        if (!approved) return;
+      }
       action.disabled = true;
       action.textContent = "Preparing deposit…";
       errorBox.textContent = "";
