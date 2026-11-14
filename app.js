@@ -345,6 +345,8 @@ function resetForNewWallet() {
 }
 $("welcome-action").addEventListener("click", () => showScreen(walletExists() ? "unlock" : "choice"));
 document.addEventListener("click", (event) => {
+  const quoteButton = event.target.closest("#get-trade-quote");
+  if (quoteButton) { event.preventDefault(); void handleTradeQuote(quoteButton); return; }
   const go = event.target.closest("[data-go]");
   if (go) { event.preventDefault(); showScreen(go.dataset.go);
     if (go.dataset.go === "home") void loadHomeFeed();
@@ -642,6 +644,19 @@ function tradeQuoteRequest(dry) {
     deadline: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
   };
 }
+function estimateIntentsFee() {
+  const from = selectedTradeAsset($("trade-from-token").value);
+  const to = selectedTradeAsset($("trade-to-token").value);
+  const amount = Number($("trade-from-amount").value);
+  if (!from || !to || !Number.isFinite(amount) || amount <= 0) return "";
+  const stable = new Set(["USDC", "USDT", "DAI"]);
+  const stablePair = stable.has(tradeSymbol(from).toUpperCase()) && stable.has(tradeSymbol(to).toUpperCase());
+  const sameAssetAcrossChains = tradeSymbol(from).toUpperCase() === tradeSymbol(to).toUpperCase() && tradeChain(from) !== tradeChain(to);
+  const bps = stablePair || sameAssetAcrossChains ? 1 : 20;
+  const fee = amount * bps / 10000;
+  const formatted = new Intl.NumberFormat("en-US", { maximumFractionDigits: Math.min(8, Number(from.decimals) || 8) }).format(fee);
+  return "Indicative 1Click platform fee: about " + formatted + " " + tradeSymbol(from) + " (" + (bps / 100).toFixed(2) + "%). The final quote is authoritative; network gas may be separate.";
+}
 function renderTradeQuote(result) {
   const q = result.quote || result;
   const from = selectedTradeAsset($("trade-from-token").value);
@@ -656,7 +671,8 @@ function renderTradeQuote(result) {
   const minimumLine = q.minAmountOut
     ? '<small>Minimum receive at quoted slippage: ' + escapeHtml(formatTokenAmount(q.minAmountOut, Number(to?.decimals || 0))) + ' ' + escapeHtml(to?.symbol || "") + '</small>'
     : "";
-  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>Estimated receive: ' + escapeHtml(output) + ' ' + escapeHtml(to?.symbol || "") + '</b><small>Paying: ' + escapeHtml(input) + ' ' + escapeHtml(from?.symbol || "") + '</small>' + usdLine + minimumLine + '<small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage setting: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Provider fees are reflected in the quoted output; network gas may be separate. Quote deadline: ' + escapeHtml(q.deadline || "refresh before depositing") + '</small>';
+  const feeLine = estimateIntentsFee();
+  $("trade-quote-panel").innerHTML = '<span>LIVE QUOTE · NEAR INTENTS</span><b>Estimated receive: ' + escapeHtml(output) + ' ' + escapeHtml(to?.symbol || "") + '</b><small>Paying: ' + escapeHtml(input) + ' ' + escapeHtml(from?.symbol || "") + '</small>' + usdLine + minimumLine + (feeLine ? '<small>' + escapeHtml(feeLine) + '</small>' : '') + '<small>Estimated time: ' + (Number(q.timeEstimate) ? Math.max(1, Math.ceil(Number(q.timeEstimate)/60)) + ' min' : 'provided by solver') + ' · Slippage setting: ' + escapeHtml((Number($("trade-slippage").value)/100).toFixed(2)) + '%</small><small>Quote deadline: ' + escapeHtml(q.deadline || "refresh before depositing") + '</small>';
 }
 
 function scheduleTradePreview() {
@@ -680,7 +696,8 @@ function scheduleTradePreview() {
     $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Wallet addresses needed</b><small>Unlock your Domain Wallet or enter both the recipient and refund addresses before requesting a quote.</small>';
     return;
   }
-  $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Getting a quote…</b><small>Requesting a live route from NEAR Intents. This does not move funds.</small>';
+  const feeHint = estimateIntentsFee();
+  $("trade-quote-panel").innerHTML = '<span>LIVE ESTIMATE</span><b>Getting a quote…</b><small>Requesting a live route from NEAR Intents. This does not move funds.</small>' + (feeHint ? '<small>' + escapeHtml(feeHint) + '</small>' : '');
   tradePreviewTimer = setTimeout(async () => {
     try {
       const body = tradeQuoteRequest(true);
@@ -723,17 +740,24 @@ document.querySelectorAll("[data-trade-mode]").forEach(button => button.addEvent
   $("trade-error").textContent = "";
 }));
 $("trade-refresh-assets").addEventListener("click", () => void loadTradeAssets());
-$("get-trade-quote").addEventListener("click", async (event) => {
-  event.preventDefault();
-  const button = $("get-trade-quote");
+async function handleTradeQuote(button) {
   const panel = $("trade-quote-panel");
   const errorBox = $("trade-error");
+  clearTimeout(tradePreviewTimer);
+  tradePreviewRequest++;
   errorBox.textContent = "";
+  errorBox.classList.remove("is-visible");
   button.disabled = true;
   button.textContent = "Requesting live quote…";
-  panel.innerHTML = '<span>NEAR INTENTS</span><b>Requesting your quote…</b><small>Checking the selected route and live market price. No funds will move.</small>';
+  panel.innerHTML = '<span>NEAR INTENTS</span><b>Preparing your quote…</b><small>Validating the selected assets, amount and wallet addresses. No funds will move.</small>';
   try {
+    // Refill NEAR recipient/refund addresses at the moment of the tap.
+    if (tradeMode === "swap" && activeWallet) {
+      if (!$("trade-recipient").value.trim()) $("trade-recipient").value = activeWallet.accountId;
+      if (!$("trade-refund").value.trim()) $("trade-refund").value = activeWallet.accountId;
+    }
     const body = tradeQuoteRequest(true);
+    panel.innerHTML = '<span>NEAR INTENTS</span><b>Contacting quote service…</b><small>Request sent for a live route. No funds will move.</small>';
     const response = await fetchIntents("quote", {
       method: "POST",
       body: JSON.stringify({ action: "quote", payload: body })
@@ -759,9 +783,9 @@ $("get-trade-quote").addEventListener("click", async (event) => {
         });
         const q = committed.quote || committed;
         if (!q.depositAddress) throw new Error("NEAR Intents did not return a deposit address. No funds have been sent.");
-        const panel = $("trade-deposit-instructions");
-        panel.hidden = false;
-        panel.innerHTML = '<span class="deposit-label">DEPOSIT INSTRUCTIONS · EXPIRES ' + escapeHtml(q.timeWhenInactive || q.deadline || "SOON") + '</span><b>Send only ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "the selected asset") + ' to this address</b><code id="trade-deposit-address">' + escapeHtml(q.depositAddress) + '</code><button type="button" class="inline-action" id="copy-trade-deposit">Copy deposit address</button><small>Sending is a separate step. This page has not moved funds. Verify the exact asset, network, amount and refund details before any deposit.</small>';
+        const depositPanel = $("trade-deposit-instructions");
+        depositPanel.hidden = false;
+        depositPanel.innerHTML = '<span class="deposit-label">DEPOSIT INSTRUCTIONS · EXPIRES ' + escapeHtml(q.timeWhenInactive || q.deadline || "SOON") + '</span><b>Send only ' + escapeHtml(selectedTradeAsset($("trade-from-token").value)?.symbol || "the selected asset") + ' to this address</b><code id="trade-deposit-address">' + escapeHtml(q.depositAddress) + '</code><button type="button" class="inline-action" id="copy-trade-deposit">Copy deposit address</button><small>Sending is a separate step. This page has not moved funds. Verify the exact asset, network, amount and refund details before any deposit.</small>';
         $("copy-trade-deposit").addEventListener("click", async () => {
           try { await navigator.clipboard.writeText(q.depositAddress); toast("Deposit address copied."); }
           catch { toast("Select and copy the deposit address."); }
@@ -769,6 +793,7 @@ $("get-trade-quote").addEventListener("click", async (event) => {
         action.textContent = "Deposit instructions ready — no funds sent";
       } catch (error) {
         errorBox.textContent = error.message || "Could not prepare deposit instructions.";
+        errorBox.classList.add("is-visible");
         action.disabled = false;
         action.textContent = "Try again";
       }
@@ -776,12 +801,13 @@ $("get-trade-quote").addEventListener("click", async (event) => {
   } catch (error) {
     const message = error.message || "Could not get a quote. Check the amount and addresses.";
     errorBox.textContent = message;
+    errorBox.classList.add("is-visible");
     panel.innerHTML = '<span>QUOTE UNAVAILABLE</span><b>Could not get a live quote</b><small>' + escapeHtml(message) + '</small><small>No funds have been sent. Correct the details and try again.</small>';
   } finally {
     button.disabled = false;
     button.textContent = tradeMode === "bridge" ? "Get bridge quote →" : "Get swap quote →";
   }
-});
+}
 
 
 // Markets page — live asset catalogue from NEAR Intents 1Click
